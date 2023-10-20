@@ -6,6 +6,7 @@ from time import sleep
 
 from benchmark.utils import Print, BenchError, progress_bar
 from benchmark.settings import Settings, SettingsError
+from benchmark.manifest import Manifest, ManifestError
 
 
 class AWSError(Exception):
@@ -241,3 +242,23 @@ class InstanceManager:
             f'{text}'
             '----------------------------------------------------------------\n'
         )
+
+class CloudLabInstanceManager:
+
+    def __init__(self, manifest, settings):
+        assert isinstance(manifest, Manifest)
+        assert isinstance(settings, Settings)
+
+        self.manifest = manifest
+        self.host_ips = manifest.hosts
+        self.settings = settings
+
+    @classmethod
+    def make(cls, manifest_file='manifest.xml', settings_file='settings.json'):
+        try:
+            return cls(Manifest.load(manifest_file), Settings.load(settings_file))
+        except ManifestError as e:
+            raise BenchError('Failed to load CloudLab manifest file', e)
+        
+    def hosts(self):
+        return self.host_ips

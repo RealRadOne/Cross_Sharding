@@ -6,7 +6,7 @@ from benchmark.logs import ParseError, LogParser
 from benchmark.utils import Print
 from benchmark.plot import Ploter, PlotError
 from benchmark.instance import InstanceManager
-from benchmark.remote import Bench, BenchError
+from benchmark.remote import Bench, CloudLabBench, BenchError
 
 
 @task
@@ -94,10 +94,10 @@ def install(ctx):
 def remote(ctx, debug=False):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'faults': 3,
-        'nodes': [10],
+        'faults': 0,
+        'nodes': [2],
         'workers': 1,
-        'collocate': True,
+        'collocate': False,
         'rate': [10_000, 110_000],
         'tx_size': 512,
         'duration': 300,
@@ -113,7 +113,8 @@ def remote(ctx, debug=False):
         'max_batch_delay': 200  # ms
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug)
+        # Bench(ctx).run(bench_params, node_params, debug)
+        CloudLabBench(ctx).run(bench_params, node_params, debug)
     except BenchError as e:
         Print.error(e)
 
