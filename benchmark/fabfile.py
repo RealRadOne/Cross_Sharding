@@ -85,7 +85,8 @@ def info(ctx):
 def install(ctx):
     ''' Install the codebase on all machines '''
     try:
-        Bench(ctx).install()
+        # Bench(ctx).install()
+        CloudLabBench(ctx).install()
     except BenchError as e:
         Print.error(e)
 
@@ -94,10 +95,10 @@ def install(ctx):
 def remote(ctx, debug=False):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'faults': 0,
-        'nodes': [2],
+        'faults': 1,
+        'nodes': [4],
         'workers': 1,
-        'collocate': False,
+        'collocate': True,
         'rate': [10_000, 110_000],
         'tx_size': 512,
         'duration': 300,
