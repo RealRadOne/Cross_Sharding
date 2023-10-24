@@ -464,6 +464,11 @@ class CloudLabBench:
         Print.info(
             f'Updating {len(ips)} machines (branch "{self.settings.branch}")...'
         )
+        Print.info(f'cd {self.settings.repo_name} && git fetch -f')
+        Print.info(f'cd {self.settings.repo_name} && git checkout -f {self.settings.branch}')
+        Print.info(f'cd {self.settings.repo_name} && git pull -f')
+        Print.info(f'cd {self.settings.repo_name}/node && {CommandMaker.compile()}')
+
         cmd = [
             f'(cd {self.settings.repo_name} && git fetch -f)',
             f'(cd {self.settings.repo_name} && git checkout -f {self.settings.branch})',
@@ -480,24 +485,24 @@ class CloudLabBench:
     def _config(self, hosts, node_parameters, bench_parameters):
         Print.info('Generating configuration files...')
 
-        # Cleanup all local configuration files.
-        cmd = CommandMaker.cleanup()
-        subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
+        # # Cleanup all local configuration files.
+        # cmd = CommandMaker.cleanup()
+        # subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
-        # Recompile the latest code.
-        cmd = CommandMaker.compile().split()
-        subprocess.run(cmd, check=True, cwd=PathMaker.node_crate_path())
+        # # Recompile the latest code.
+        # cmd = CommandMaker.compile().split()
+        # subprocess.run(cmd, check=True, cwd=PathMaker.node_crate_path())
 
-        # Create alias for the client and nodes binary.
-        cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
-        subprocess.run([cmd], shell=True)
+        # # Create alias for the client and nodes binary.
+        # cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
+        # subprocess.run([cmd], shell=True)
 
         # Generate configuration files.
         keys = []
         key_files = [PathMaker.key_file(i) for i in range(len(hosts))]
         for filename in key_files:
-            cmd = CommandMaker.generate_key(filename).split()
-            subprocess.run(cmd, check=True)
+            # cmd = CommandMaker.generate_key(filename).split()
+            # subprocess.run(cmd, check=True)
             keys += [Key.from_file(filename)]
 
         names = [x.name for x in keys]
@@ -513,20 +518,20 @@ class CloudLabBench:
             )
         Print.info(f'addresses = {addresses}')
         committee = Committee(addresses, self.settings.base_port)
-        committee.print(PathMaker.committee_file())
+        # committee.print(PathMaker.committee_file())
 
-        node_parameters.print(PathMaker.parameters_file())
+        # node_parameters.print(PathMaker.parameters_file())
 
-        # Cleanup all nodes and upload configuration files.
-        names = names[:len(names)-bench_parameters.faults]
-        progress = progress_bar(names, prefix='Uploading config files:')
-        for i, name in enumerate(progress):
-            for ip in committee.ips(name):
-                c = Connection(ip, user='heenan')
-                c.run(f'{CommandMaker.cleanup()} || true', hide=True)
-                c.put(PathMaker.committee_file(), '.')
-                c.put(PathMaker.key_file(i), '.')
-                c.put(PathMaker.parameters_file(), '.')
+        # # Cleanup all nodes and upload configuration files.
+        # names = names[:len(names)-bench_parameters.faults]
+        # progress = progress_bar(names, prefix='Uploading config files:')
+        # for i, name in enumerate(progress):
+        #     for ip in committee.ips(name):
+        #         c = Connection(ip, user='heenan')
+        #         c.run(f'{CommandMaker.cleanup()} || true', hide=True)
+        #         c.put(PathMaker.committee_file(), '.')
+        #         c.put(PathMaker.key_file(i), '.')
+        #         c.put(PathMaker.parameters_file(), '.')
 
         return committee
     
@@ -662,12 +667,12 @@ class CloudLabBench:
             return
         Print.info(f'selected_hosts are : {selected_hosts}')
 
-        # Update nodes.
-        try:
-            self._update(selected_hosts, bench_parameters.collocate)
-        except (GroupException, ExecutionError) as e:
-            e = FabricError(e) if isinstance(e, GroupException) else e
-            raise BenchError('Failed to update nodes', e)
+        # # Update nodes.
+        # try:
+        #     self._update(selected_hosts, bench_parameters.collocate)
+        # except (GroupException, ExecutionError) as e:
+        #     e = FabricError(e) if isinstance(e, GroupException) else e
+        #     raise BenchError('Failed to update nodes', e)
 
         # Upload all configuration files.
         try:
@@ -690,9 +695,9 @@ class CloudLabBench:
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
                     try:
-                        self._run_single(
-                            r, committee_copy, bench_parameters, debug
-                        )
+                        # self._run_single(
+                        #     r, committee_copy, bench_parameters, debug
+                        # )
 
                         faults = bench_parameters.faults
                         logger = self._logs(committee_copy, faults)

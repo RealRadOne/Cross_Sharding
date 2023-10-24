@@ -7,7 +7,7 @@
     "repo": {
         "name": "fair-DAG",
         "url": "https://HeenaNagda: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@github.com/HeenaNagda/fair-DAG.git",
-        "branch": "master"
+        "branch": "main"
     },
     "instances": {
         "type": "m5d.8xlarge",

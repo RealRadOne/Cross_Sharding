@@ -6,7 +6,7 @@ import matplotlib.ticker as tick
 from glob import glob
 from itertools import cycle
 
-from benchmark.utils import PathMaker
+from benchmark.utils import PathMaker, Print
 from benchmark.config import PlotParameters
 from benchmark.aggregate import LogAggregator
 
@@ -168,9 +168,11 @@ class Ploter:
         # Aggregate the logs.
         LogAggregator(params.max_latency).print()
 
+
         # Make the latency, tps, and robustness graphs.
         iterator = params.workers if params.scalability() else params.nodes
         latency_files, tps_files = [], []
+
         for f in params.faults:
             for x in iterator:
                 latency_files += glob(
@@ -184,7 +186,6 @@ class Ploter:
                         params.tx_size,
                     )
                 )
-
             for l in params.max_latency:
                 tps_files += glob(
                     PathMaker.agg_file(
@@ -198,6 +199,7 @@ class Ploter:
                         max_latency=l
                     )
                 )
-
+        Print.info(f'latency_files = {latency_files}')
+        Print.info(f'tps_files = {tps_files}')
         cls.plot_latency(latency_files, params.scalability())
         cls.plot_tps(tps_files, params.scalability())
