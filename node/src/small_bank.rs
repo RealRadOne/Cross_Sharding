@@ -143,8 +143,9 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_deposit_saving(&mut self, tx: Bytes){
-        let user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
-        let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[6..10]);
+        let start_byte = 3;
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.deposit_saving(user_id, amount_to_deposit);
     }
 
@@ -163,8 +164,9 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_deposit_checking(&mut self, tx: Bytes){
-        let user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
-        let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[6..10]);
+        let start_byte = 3;
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.deposit_checking(user_id, amount_to_deposit);
     }
 
@@ -183,8 +185,9 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_write_cheque(&mut self, tx: Bytes){
-        let user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
-        let amount_to_withdraw: u32 = self._get_bytes_to_u32(&tx[6..10]);
+        let start_byte = 3;
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let amount_to_withdraw: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.withdraw_checking(user_id, amount_to_withdraw);
     }
 
@@ -208,9 +211,10 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_send(&mut self, tx: Bytes){
-        let from_user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
-        let to_user_id: u32 = self._get_bytes_to_u32(&tx[6..10]);
-        let amount_to_transfer: u32 = self._get_bytes_to_u32(&tx[10..14]);
+        let start_byte = 3;
+        let from_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let to_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
+        let amount_to_transfer: u32 = self._get_bytes_to_u32(&tx[start_byte+8..start_byte+12]);
         self.small_bank.withdraw_checking(from_user_id, amount_to_transfer);
         self.small_bank.deposit_checking(to_user_id, amount_to_transfer);
     }
@@ -258,9 +262,10 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_split(&mut self, tx: Bytes){
-        let n_payors: u32 = self._get_bytes_to_u32(&tx[2..6]);
-        let n_payees: u32 = self._get_bytes_to_u32(&tx[6..10]);
-        let mut start_byte = 10;
+        let mut start_byte = 3;
+        let n_payors: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let n_payees: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
+        start_byte = start_byte+8;
 
         for _ in 0..n_payors{
             let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
@@ -290,7 +295,8 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_amalgamate(&mut self, tx: Bytes){
-        let user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
+        let start_byte = 3;
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let saving_amount = self.small_bank.get_saving_amount(user_id);
 
         if  saving_amount<= MAX_AMOUNT-self.small_bank.get_checking_amount(user_id){
@@ -308,11 +314,12 @@ impl SmallBankTransactionHandler{
     }
 
     fn _execute_tx_read(&mut self, tx: Bytes){
-        let user_id: u32 = self._get_bytes_to_u32(&tx[2..6]);
+        let start_byte = 3;
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let _ = self.small_bank.get_checking_amount(user_id);
     }
 
-    fn _generate_transaction(&self, tx_id:u8, sample_tx:bool) -> Bytes{
+    fn _generate_transaction(&self, tx_id:u8, sample_tx:bool, tx_uid:u64) -> Bytes{
         let mut tx = BytesMut::with_capacity(self.tx_size);
 
         // Update first byte with indicator
@@ -322,6 +329,9 @@ impl SmallBankTransactionHandler{
         else{
             tx.put_u8(1u8); // Standard txs start with 1.
         }
+
+        // Add unique transaction id to uniquely identify the transaction
+        tx.put_u64(tx_uid);
 
         // Update second byte with transaction id
         tx.put_u8(tx_id);
@@ -356,7 +366,7 @@ impl SmallBankTransactionHandler{
     }
  
 
-    pub fn get_next_transaction(&self, sample_tx:bool) -> Bytes{
+    pub fn get_next_transaction(&self, sample_tx:bool, tx_uid:u64) -> Bytes{
 
         // get transaction id
         let mut tx_id:u8 =  6;
@@ -365,7 +375,7 @@ impl SmallBankTransactionHandler{
         }
 
         // Generate transaction
-        return self._generate_transaction(tx_id, sample_tx);
+        return self._generate_transaction(tx_id, sample_tx, tx_uid);
 
     }
 

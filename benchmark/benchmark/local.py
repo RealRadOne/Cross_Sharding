@@ -74,6 +74,7 @@ class LocalBench:
             self.node_parameters.print(PathMaker.parameters_file())
 
             # Run the clients (they will wait for the nodes to be ready).
+            Print.info(f'n_users = {self.n_users}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
             workers_addresses = committee.workers_addresses(self.faults)
             rate_share = ceil(rate / committee.workers())
             for i, addresses in enumerate(workers_addresses):
@@ -81,6 +82,9 @@ class LocalBench:
                     cmd = CommandMaker.run_client(
                         address,
                         self.tx_size,
+                        self.n_users,
+                        self.skew_factor,
+                        self.prob_choose_mtx,
                         rate_share,
                         [x for y in workers_addresses for _, x in y]
                     )

@@ -18,6 +18,9 @@ def local(ctx, debug=True):
         'workers': 1,
         'rate': 50_000,
         'tx_size': 512,
+        'n_users': 20,
+        'skew_factor': 0.1,
+        'prob_choose_mtx': 1.0,
         'duration': 20,
     }
     node_params = {
@@ -101,6 +104,9 @@ def remote(ctx, debug=False):
         'collocate': True,
         'rate': [10_000, 110_000],
         'tx_size': 512,
+        'n_users': 20,
+        'skew_factor': 0.1,
+        'prob_choose_mtx': 1.0,
         'duration': 300,
         'runs': 2,
     }

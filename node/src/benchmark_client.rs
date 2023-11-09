@@ -1,7 +1,5 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use anyhow::{Context, Result};
-use bytes::BufMut as _;
-use bytes::BytesMut;
 use clap::{crate_name, crate_version, App, AppSettings};
 use env_logger::Env;
 use futures::future::join_all;
@@ -12,6 +10,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+mod small_bank;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,6 +19,9 @@ async fn main() -> Result<()> {
         .about("Benchmark client for Narwhal and Tusk.")
         .args_from_usage("<ADDR> 'The network address of the node where to send txs'")
         .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
+        .args_from_usage("--n_users=<INT> 'Number of users in small-bank'")
+        .args_from_usage("--skew_factor=<FLOAT> 'Skew factor for users in small-bank'")
+        .args_from_usage("--prob_choose_mtx=<FLOAT> 'Probability of choosing modifying transactions in small-bank'")
         .args_from_usage("--rate=<INT> 'The rate (txs/s) at which to send the transactions'")
         .args_from_usage("--nodes=[ADDR]... 'Network addresses that must be reachable before starting the benchmark.'")
         .setting(AppSettings::ArgRequiredElseHelp)
@@ -39,6 +41,21 @@ async fn main() -> Result<()> {
         .unwrap()
         .parse::<usize>()
         .context("The size of transactions must be a non-negative integer")?;
+    let n_users = matches
+        .value_of("n_users")
+        .unwrap()
+        .parse::<u64>()
+        .context("Number of users in small-bank must be a non-negative integer")?;
+    let skew_factor = matches
+        .value_of("skew_factor")
+        .unwrap()
+        .parse::<f64>()
+        .context("Skew factor for users in small-bank must be a non-negative integer")?;
+    let prob_choose_mtx = matches
+        .value_of("prob_choose_mtx")
+        .unwrap()
+        .parse::<f64>()
+        .context("Probability of choosing modifying transactions in small-bank must be a non-negative integer")?;
     let rate = matches
         .value_of("rate")
         .unwrap()
@@ -58,11 +75,23 @@ async fn main() -> Result<()> {
     info!("Transactions size: {} B", size);
 
     // NOTE: This log entry is used to compute performance.
+    info!("# users: {}", n_users);
+
+    // NOTE: This log entry is used to compute performance.
+    info!("Skew Factor: {}", skew_factor);
+
+    // NOTE: This log entry is used to compute performance.
+    info!("Probability of choosing modifying transactions : {}", prob_choose_mtx);
+
+    // NOTE: This log entry is used to compute performance.
     info!("Transactions rate: {} tx/s", rate);
+
+    let sb_handler = small_bank::SmallBankTransactionHandler::new(size, n_users, skew_factor, prob_choose_mtx);
 
     let client = Client {
         target,
         size,
+        sb_handler,
         rate,
         nodes,
     };
@@ -77,6 +106,7 @@ async fn main() -> Result<()> {
 struct Client {
     target: SocketAddr,
     size: usize,
+    sb_handler: small_bank::SmallBankTransactionHandler,
     rate: u64,
     nodes: Vec<SocketAddr>,
 }
@@ -100,7 +130,6 @@ impl Client {
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
-        let mut tx = BytesMut::with_capacity(self.size);
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
         let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
@@ -115,20 +144,17 @@ impl Client {
             let now = Instant::now();
 
             for x in 0..burst {
-                if x == counter % burst {
-                    // NOTE: This log entry is used to compute performance.
-                    info!("Sending sample transaction {}", counter);
-
-                    tx.put_u8(0u8); // Sample txs start with 0.
-                    tx.put_u64(counter); // This counter identifies the tx.
-                } else {
+                let mut tx_uid = 0;
+                if x == counter % burst{
+                    tx_uid = counter;
+                    info!("Sending sample transaction {}", tx_uid);
+                }
+                else{
                     r += 1;
-                    tx.put_u8(1u8); // Standard txs start with 1.
-                    tx.put_u64(r); // Ensures all clients send different txs.
-                };
-
-                tx.resize(self.size, 0u8);
-                let bytes = tx.split().freeze();
+                    tx_uid = r;
+                }
+                let bytes = self.sb_handler.get_next_transaction(x == counter % burst, tx_uid);
+                
                 if let Err(e) = transport.send(bytes).await {
                     warn!("Failed to send transaction: {}", e);
                     break 'main;

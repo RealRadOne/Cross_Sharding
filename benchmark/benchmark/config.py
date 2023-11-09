@@ -212,6 +212,12 @@ class BenchParameters:
                 self.collocate = True
 
             self.tx_size = int(json['tx_size'])
+
+            self.n_users = int(json['n_users'])
+
+            self.skew_factor = float(json['skew_factor'])
+
+            self.prob_choose_mtx = float(json['prob_choose_mtx'])
            
             self.duration = int(json['duration'])
 

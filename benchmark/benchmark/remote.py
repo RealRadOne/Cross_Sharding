@@ -221,6 +221,7 @@ class Bench:
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
         Print.info('Booting clients...')
+        Print.info(f'n_users = {self.n_users}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
         workers_addresses = committee.workers_addresses(faults)
         rate_share = ceil(rate / committee.workers())
         for i, addresses in enumerate(workers_addresses):
@@ -229,6 +230,9 @@ class Bench:
                 cmd = CommandMaker.run_client(
                     address,
                     bench_parameters.tx_size,
+                    bench_parameters.n_users,
+                    bench_parameters.skew_factor,
+                    bench_parameters.prob_choose_mtx,
                     rate_share,
                     [x for y in workers_addresses for _, x in y]
                 )
@@ -561,6 +565,7 @@ class CloudLabBench:
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
         Print.info('Booting clients...')
+        Print.info(f'n_users = {self.n_users}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
         workers_addresses = committee.workers_addresses(faults)
         rate_share = ceil(rate / committee.workers())
         for i, addresses in enumerate(workers_addresses):
@@ -569,6 +574,9 @@ class CloudLabBench:
                 cmd = CommandMaker.run_client(
                     address,
                     bench_parameters.tx_size,
+                    bench_parameters.n_users,
+                    bench_parameters.skew_factor,
+                    bench_parameters.prob_choose_mtx,
                     rate_share,
                     [x for y in workers_addresses for _, x in y]
                 )
