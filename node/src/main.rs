@@ -10,6 +10,7 @@ use primary::{Certificate, Primary};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
 use worker::Worker;
+use smallbank::SmallBankTransactionHandler;
 
 /// The default channel capacity.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -32,6 +33,10 @@ async fn main() -> Result<()> {
                 .args_from_usage("--committee=<FILE> 'The file containing committee information'")
                 .args_from_usage("--parameters=[FILE] 'The file containing the node parameters'")
                 .args_from_usage("--store=<PATH> 'The path where to create the data store'")
+                .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
+                .args_from_usage("--n_users=<INT> 'Number of users in small-bank'")
+                .args_from_usage("--skew_factor=<FLOAT> 'Skew factor for users in small-bank'")
+                .args_from_usage("--prob_choose_mtx=<FLOAT> 'Probability of choosing modifying transactions in small-bank'")
                 .subcommand(SubCommand::with_name("primary").about("Run a single primary"))
                 .subcommand(
                     SubCommand::with_name("worker")
@@ -71,6 +76,26 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     let committee_file = matches.value_of("committee").unwrap();
     let parameters_file = matches.value_of("parameters");
     let store_path = matches.value_of("store").unwrap();
+    let size = matches
+        .value_of("size")
+        .unwrap()
+        .parse::<usize>()
+        .context("The size of transactions must be a non-negative integer")?;
+    let n_users = matches
+        .value_of("n_users")
+        .unwrap()
+        .parse::<u64>()
+        .context("Number of users in small-bank must be a non-negative integer")?;
+    let skew_factor = matches
+        .value_of("skew_factor")
+        .unwrap()
+        .parse::<f64>()
+        .context("Skew factor for users in small-bank must be a non-negative integer")?;
+    let prob_choose_mtx = matches
+        .value_of("prob_choose_mtx")
+        .unwrap()
+        .parse::<f64>()
+        .context("Probability of choosing modifying transactions in small-bank must be a non-negative integer")?;
 
     // Read the committee and node's keypair from file.
     let keypair = KeyPair::import(key_file).context("Failed to load the node's keypair")?;
@@ -87,6 +112,9 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
 
     // Make the data store.
     let store = Store::new(store_path).context("Failed to create a store")?;
+
+    // small-bank handler to execute transactions
+    let sb_handler = SmallBankTransactionHandler::new(size, n_users, skew_factor, prob_choose_mtx);
 
     // Channels the sequence of certificates.
     let (tx_output, rx_output) = channel(CHANNEL_CAPACITY);
@@ -121,7 +149,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 .unwrap()
                 .parse::<WorkerId>()
                 .context("The worker id must be a positive integer")?;
-            Worker::spawn(keypair.name, id, committee, parameters, store);
+            Worker::spawn(keypair.name, id, committee, parameters, store, sb_handler);
         }
         _ => unreachable!(),
     }

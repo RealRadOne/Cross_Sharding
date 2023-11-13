@@ -53,6 +53,14 @@ impl GarbageCollector {
         while let Some(certificate) = self.rx_consensus.recv().await {
             // TODO [issue #9]: Re-include batch digests that have not been sequenced into our next block.
 
+            // Channel ordering towards workers
+            let execution_bytes = bincode::serialize(&PrimaryWorkerMessage::Execute(certificate.clone()))
+                .expect("Failed to serialize execution message");
+            self.network
+                .broadcast(self.addresses.clone(), Bytes::from(execution_bytes))
+                .await;
+
+
             let round = certificate.round();
             if round > last_committed_round {
                 last_committed_round = round;

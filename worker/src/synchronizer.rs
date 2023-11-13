@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::{Store, StoreError};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+use smallbank::SmallBankTransactionHandler;
 
 #[cfg(test)]
 #[path = "tests/synchronizer_tests.rs"]
@@ -31,6 +32,8 @@ pub struct Synchronizer {
     committee: Committee,
     // The persistent storage.
     store: Store,
+    // small-bank handler to execute transacrtions
+    sb_handler: SmallBankTransactionHandler,
     /// The depth of the garbage collection.
     gc_depth: Round,
     /// The delay to wait before re-trying to send sync requests.
@@ -57,6 +60,7 @@ impl Synchronizer {
         id: WorkerId,
         committee: Committee,
         store: Store,
+        sb_handler: SmallBankTransactionHandler,
         gc_depth: Round,
         sync_retry_delay: u64,
         sync_retry_nodes: usize,
@@ -68,6 +72,7 @@ impl Synchronizer {
                 id,
                 committee,
                 store,
+                sb_handler,
                 gc_depth,
                 sync_retry_delay,
                 sync_retry_nodes,
@@ -156,6 +161,28 @@ impl Synchronizer {
                         let message = WorkerMessage::BatchRequest(missing, self.name);
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
+                    },
+                    PrimaryWorkerMessage::Execute(certificate) => {
+                        for digest in certificate.header.payload.keys() {
+                            // NOTE: This log entry is used to compute performance.
+                            // info!("Maybe potential execution point, right before garbage collection {} -> {:?}", certificate.header, digest);
+
+                            match self.store.read(digest.to_vec()).await {
+                                Ok(Some(batch)) => {
+                                    match bincode::deserialize(&batch).unwrap() {
+                                        WorkerMessage::Batch(batch) => {
+                                            // info!("Maybe potential execution point," );
+                                            for tx in batch{
+                                                self.sb_handler.execute_transaction(Bytes::from(tx));
+                                            }
+                                        },
+                                        _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
+                                    }
+                                }
+                                Ok(None) => (),
+                                Err(e) => error!("{}", e),
+                            }                            
+                        }
                     },
                     PrimaryWorkerMessage::Cleanup(round) => {
                         // Keep track of the primary's round number.

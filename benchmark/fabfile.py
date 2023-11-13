@@ -18,7 +18,7 @@ def local(ctx, debug=True):
         'workers': 1,
         'rate': 50_000,
         'tx_size': 512,
-        'n_users': 20,
+        'n_users': 100,
         'skew_factor': 0.1,
         'prob_choose_mtx': 1.0,
         'duration': 20,

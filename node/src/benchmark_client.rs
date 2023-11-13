@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-mod small_bank;
+use smallbank::SmallBankTransactionHandler;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
     // NOTE: This log entry is used to compute performance.
     info!("Transactions rate: {} tx/s", rate);
 
-    let sb_handler = small_bank::SmallBankTransactionHandler::new(size, n_users, skew_factor, prob_choose_mtx);
+    let sb_handler = SmallBankTransactionHandler::new(size, n_users, skew_factor, prob_choose_mtx);
 
     let client = Client {
         target,
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
 struct Client {
     target: SocketAddr,
     size: usize,
-    sb_handler: small_bank::SmallBankTransactionHandler,
+    sb_handler: SmallBankTransactionHandler,
     rate: u64,
     nodes: Vec<SocketAddr>,
 }
@@ -144,7 +144,7 @@ impl Client {
             let now = Instant::now();
 
             for x in 0..burst {
-                let mut tx_uid = 0;
+                let tx_uid;
                 if x == counter % burst{
                     tx_uid = counter;
                     info!("Sending sample transaction {}", tx_uid);

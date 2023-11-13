@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Sender};
+use smallbank::SmallBankTransactionHandler;
 
 #[cfg(test)]
 #[path = "tests/worker_tests.rs"]
@@ -50,6 +51,8 @@ pub struct Worker {
     parameters: Parameters,
     /// The persistent storage.
     store: Store,
+    // small-bank handler to execute transacrtions
+    sb_handler: SmallBankTransactionHandler,
 }
 
 impl Worker {
@@ -59,6 +62,7 @@ impl Worker {
         committee: Committee,
         parameters: Parameters,
         store: Store,
+        sb_handler: SmallBankTransactionHandler,
     ) {
         // Define a worker instance.
         let worker = Self {
@@ -67,6 +71,7 @@ impl Worker {
             committee,
             parameters,
             store,
+            sb_handler,
         };
 
         // Spawn all worker tasks.
@@ -122,6 +127,7 @@ impl Worker {
             self.id,
             self.committee.clone(),
             self.store.clone(),
+            self.sb_handler.clone(),
             self.parameters.gc_depth,
             self.parameters.sync_retry_delay,
             self.parameters.sync_retry_nodes,

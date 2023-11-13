@@ -98,6 +98,10 @@ class LocalBench:
                     PathMaker.committee_file(),
                     PathMaker.db_path(i),
                     PathMaker.parameters_file(),
+                    self.tx_size,
+                    self.n_users,
+                    self.skew_factor,
+                    self.prob_choose_mtx,
                     debug=debug
                 )
                 log_file = PathMaker.primary_log_file(i)
@@ -112,6 +116,10 @@ class LocalBench:
                         PathMaker.db_path(i, id),
                         PathMaker.parameters_file(),
                         id,  # The worker's id.
+                        self.tx_size,
+                        self.n_users,
+                        self.skew_factor,
+                        self.prob_choose_mtx,
                         debug=debug
                     )
                     log_file = PathMaker.worker_log_file(i, id)

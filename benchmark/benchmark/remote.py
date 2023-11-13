@@ -248,6 +248,10 @@ class Bench:
                 PathMaker.committee_file(),
                 PathMaker.db_path(i),
                 PathMaker.parameters_file(),
+                bench_parameters.tx_size,
+                bench_parameters.n_users,
+                bench_parameters.skew_factor,
+                bench_parameters.prob_choose_mtx,
                 debug=debug
             )
             log_file = PathMaker.primary_log_file(i)
@@ -264,6 +268,10 @@ class Bench:
                     PathMaker.db_path(i, id),
                     PathMaker.parameters_file(),
                     id,  # The worker's id.
+                    bench_parameters.tx_size,
+                    bench_parameters.n_users,
+                    bench_parameters.skew_factor,
+                    bench_parameters.prob_choose_mtx,
                     debug=debug
                 )
                 log_file = PathMaker.worker_log_file(i, id)
@@ -592,6 +600,10 @@ class CloudLabBench:
                 PathMaker.committee_file(),
                 PathMaker.db_path(i),
                 PathMaker.parameters_file(),
+                bench_parameters.tx_size,
+                bench_parameters.n_users,
+                bench_parameters.skew_factor,
+                bench_parameters.prob_choose_mtx,
                 debug=debug
             )
             log_file = PathMaker.primary_log_file(i)
@@ -608,6 +620,10 @@ class CloudLabBench:
                     PathMaker.db_path(i, id),
                     PathMaker.parameters_file(),
                     id,  # The worker's id.
+                    bench_parameters.tx_size,
+                    bench_parameters.n_users,
+                    bench_parameters.skew_factor,
+                    bench_parameters.prob_choose_mtx,
                     debug=debug
                 )
                 log_file = PathMaker.worker_log_file(i, id)
