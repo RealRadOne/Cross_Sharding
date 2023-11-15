@@ -102,7 +102,7 @@ def remote(ctx, debug=False):
         'nodes': [4],
         'workers': 1,
         'collocate': True,
-        'rate': [10_000, 110_000],
+        'rate': [10_000, 50_000, 110_000],
         'tx_size': 512,
         'n_users': 20,
         'skew_factor': 0.1,
@@ -121,7 +121,7 @@ def remote(ctx, debug=False):
     }
     try:
         # Bench(ctx).run(bench_params, node_params, debug)
-        CloudLabBench(ctx).run(bench_params, node_params, debug)
+        CloudLabBench(ctx, 'heenan').run(bench_params, node_params, debug)
     except BenchError as e:
         Print.error(e)
 

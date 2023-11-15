@@ -11,6 +11,7 @@ const MAX_DEPOSIT: u32 = 50;
 const MAX_AMOUNT: u32 = u32::MAX;
 const SPLIT_PARTY_SIZE_MIN: u32 = 3;
 const SPLIT_PARTY_SIZE_MAX: u32 = 5;
+const TX_DATA_BYTE: usize = 10;
 
 #[derive(Clone)]
 struct SmallBank{
@@ -144,8 +145,18 @@ impl SmallBankTransactionHandler{
         tx.put_u32(amount_to_deposit);
     }
 
+    fn _get_deposit_saving_tx_dependency(&self, tx: Bytes) -> Vec<u32>{   
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(user_id);  
+
+        return dependency;
+    }
+
     fn _execute_tx_deposit_saving(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.deposit_saving(user_id, amount_to_deposit);
@@ -165,8 +176,18 @@ impl SmallBankTransactionHandler{
         tx.put_u32(amount_to_deposit);
     }
 
+    fn _get_deposit_checking_tx_dependency(&self, tx: Bytes) -> Vec<u32>{
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(user_id);
+        
+        return dependency;
+    }
+
     fn _execute_tx_deposit_checking(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let amount_to_deposit: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.deposit_checking(user_id, amount_to_deposit);
@@ -186,8 +207,18 @@ impl SmallBankTransactionHandler{
         tx.put_u32(amount_to_withdraw);
     }
 
+    fn _get_write_cheque_tx_dependency(&self, tx: Bytes) -> Vec<u32>{
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(user_id); 
+
+        return dependency;
+    }
+
     fn _execute_tx_write_cheque(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let amount_to_withdraw: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         self.small_bank.withdraw_checking(user_id, amount_to_withdraw);
@@ -212,8 +243,21 @@ impl SmallBankTransactionHandler{
         tx.put_u32(amount_to_transfer);
     }
 
+    fn _get_send_tx_dependency(&self, tx: Bytes) -> Vec<u32>{ 
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let from_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(from_user_id);
+
+        let to_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
+        dependency.push(to_user_id);    
+
+        return dependency;
+    }
+
     fn _execute_tx_send(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let from_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let to_user_id: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         let amount_to_transfer: u32 = self._get_bytes_to_u32(&tx[start_byte+8..start_byte+12]);
@@ -263,8 +307,31 @@ impl SmallBankTransactionHandler{
         }
     }
 
+    fn _get_split_tx_dependency(&self, tx: Bytes) -> Vec<u32>{        
+        let mut dependency: Vec<u32> = Vec::new();
+        let mut start_byte = TX_DATA_BYTE;
+
+        let n_payors: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        let n_payees: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
+        start_byte = start_byte+8;
+
+        for _ in 0..n_payors{
+            let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+            dependency.push(user_id);
+            start_byte += 8;
+        }
+
+        for _ in 0..n_payees{
+            let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+            dependency.push(user_id);
+            start_byte += 8;
+        }
+
+        return dependency;
+    }
+
     fn _execute_tx_split(&mut self, tx: Bytes){
-        let mut start_byte = 10;
+        let mut start_byte = TX_DATA_BYTE;
         let n_payors: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let n_payees: u32 = self._get_bytes_to_u32(&tx[start_byte+4..start_byte+8]);
         start_byte = start_byte+8;
@@ -296,8 +363,18 @@ impl SmallBankTransactionHandler{
         tx.put_u32(user_id);
     }
 
+    fn _get_amalgamate_tx_dependency(&self, tx: Bytes) -> Vec<u32>{
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(user_id);
+
+        return dependency;
+    }
+
     fn _execute_tx_amalgamate(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let saving_amount = self.small_bank.get_saving_amount(user_id);
 
@@ -315,8 +392,18 @@ impl SmallBankTransactionHandler{
         tx.put_u32(user_id);
     }
 
+    fn _get_read_tx_dependency(&self, tx: Bytes) -> Vec<u32>{
+        let mut dependency: Vec<u32> = Vec::new();
+        let start_byte = TX_DATA_BYTE;
+
+        let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
+        dependency.push(user_id);
+
+        return dependency;
+    }
+
     fn _execute_tx_read(&mut self, tx: Bytes){
-        let start_byte = 10;
+        let start_byte = TX_DATA_BYTE;
         let user_id: u32 = self._get_bytes_to_u32(&tx[start_byte..start_byte+4]);
         let _ = self.small_bank.get_checking_amount(user_id);
     }
@@ -355,6 +442,18 @@ impl SmallBankTransactionHandler{
         return tx_bytes;
     }
 
+    fn _get_dependency(&self, tx_id: u8, tx: Bytes) -> (char, Vec<u32>){
+        match tx_id{
+            0 => return ('w', self._get_deposit_saving_tx_dependency(tx)),
+            1 => return ('w', self._get_deposit_checking_tx_dependency(tx)),
+            2 => return ('w', self._get_write_cheque_tx_dependency(tx)),
+            3 => return ('w', self._get_send_tx_dependency(tx)),
+            4 => return ('w', self._get_split_tx_dependency(tx)),
+            5 => return ('w', self._get_amalgamate_tx_dependency(tx)),
+            _ => return ('r', self._get_read_tx_dependency(tx)),
+        }
+    }
+
     fn _execute_transaction(&mut self, tx_id: u8, tx: Bytes){
         match tx_id{
             0 => self._execute_tx_deposit_saving(tx),
@@ -381,22 +480,24 @@ impl SmallBankTransactionHandler{
 
     }
 
+    pub fn get_transaction_dependency(&self, tx: Bytes) -> (char, Vec<u32>){
+        // get transaction id
+        let tx_id: u8 = tx[9];
+
+        // get transaction dependency vector
+        return self._get_dependency(tx_id, tx);
+    }
+
 
     pub fn execute_transaction(&mut self, tx: Bytes){
         // get transaction id
         let tx_id: u8 = tx[9];
 
         // Execute transaction
-        self._execute_transaction(tx_id, tx)
+        self._execute_transaction(tx_id, tx);
     }
 
 }
-
-
-
-
-
-
 
 
 pub fn add(left: usize, right: usize) -> usize {

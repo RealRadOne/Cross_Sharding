@@ -383,9 +383,10 @@ class Bench:
                         continue
 
 class CloudLabBench:
-    def __init__(self, ctx):
+    def __init__(self, ctx, cloudlab_username):
         self.manager = CloudLabInstanceManager.make()
         self.settings = self.manager.settings
+        self.cloudlab_username = cloudlab_username
 
     def _check_stderr(self, output):
         if isinstance(output, dict):
@@ -420,7 +421,7 @@ class CloudLabBench:
         ]
         hosts = self.manager.hosts()        # TODO flat
         try:
-            g = Group(*hosts, user='heenan')
+            g = Group(*hosts, user=self.cloudlab_username)
             g.run(' && '.join(cmd), hide=True)
             Print.heading(f'Initialized testbed of {len(hosts)} nodes')
         except (GroupException, ExecutionError) as e:
@@ -432,7 +433,7 @@ class CloudLabBench:
         if bench_parameters.collocate:
             #  n parties + 1 client machine
             party_nodes = max(bench_parameters.nodes)
-            client_nodes = 1
+            client_nodes = 0            # Client runs on host machine
             nodes = party_nodes + client_nodes
 
             # Ensure there are enough hosts.
@@ -449,7 +450,7 @@ class CloudLabBench:
             primaries = parties
             workers = parties * bench_parameters.workers
             party_nodes = primaries + workers
-            client_nodes = 1
+            client_nodes = 0        # Client runs on host machine
 
             #  n primaries + n*w workers + 1 client machine
             nodes = party_nodes + client_nodes
@@ -487,7 +488,7 @@ class CloudLabBench:
                 f'./{self.settings.repo_name}/target/release/'
             )
         ]
-        g = Group(*ips, user='heenan')
+        g = Group(*ips, user=self.cloudlab_username)
         g.run(' && '.join(cmd), hide=True)
 
     def _config(self, hosts, node_parameters, bench_parameters):
@@ -535,7 +536,7 @@ class CloudLabBench:
         progress = progress_bar(names, prefix='Uploading config files:')
         for i, name in enumerate(progress):
             for ip in committee.ips(name):
-                c = Connection(ip, user='heenan')
+                c = Connection(ip, user=self.cloudlab_username)
                 c.run(f'{CommandMaker.cleanup()} || true', hide=True)
                 c.put(PathMaker.committee_file(), '.')
                 c.put(PathMaker.key_file(i), '.')
@@ -550,7 +551,7 @@ class CloudLabBench:
         delete_logs = CommandMaker.clean_logs() if delete_logs else 'true'
         cmd = [delete_logs, f'({CommandMaker.kill()} || true)']
         try:
-            g = Group(*hosts, user='heenan')
+            g = Group(*hosts, user=self.cloudlab_username)
             g.run(' && '.join(cmd), hide=True)
         except GroupException as e:
             raise BenchError('Failed to kill nodes', FabricError(e))
@@ -558,7 +559,7 @@ class CloudLabBench:
     def _background_run(self, host, command, log_file):
         name = splitext(basename(log_file))[0]
         cmd = f'tmux new -d -s "{name}" "{command} |& tee {log_file}"'
-        c = Connection(host, user='heenan')
+        c = Connection(host, user=self.cloudlab_username)
         output = c.run(cmd, hide=True)
         self._check_stderr(output)
     
@@ -573,7 +574,7 @@ class CloudLabBench:
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
         Print.info('Booting clients...')
-        Print.info(f'n_users = {self.n_users}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
+        Print.info(f'n_users = {bench_parameters.n_users}, skew_factor = {bench_parameters.skew_factor}, prob_choose_mtx = {bench_parameters.prob_choose_mtx}')
         workers_addresses = committee.workers_addresses(faults)
         rate_share = ceil(rate / committee.workers())
         for i, addresses in enumerate(workers_addresses):
@@ -646,7 +647,7 @@ class CloudLabBench:
         for i, addresses in enumerate(progress):
             for id, address in addresses:
                 host = Committee.ip(address)
-                c = Connection(host, user='heenan')
+                c = Connection(host, user=self.cloudlab_username)
                 c.get(
                     PathMaker.client_log_file(i, id), 
                     local=PathMaker.client_log_file(i, id)
@@ -660,7 +661,7 @@ class CloudLabBench:
         progress = progress_bar(primary_addresses, prefix='Downloading primaries logs:')
         for i, address in enumerate(progress):
             host = Committee.ip(address)
-            c = Connection(host, user='heenan')
+            c = Connection(host, user=self.cloudlab_username)
             c.get(
                 PathMaker.primary_log_file(i), 
                 local=PathMaker.primary_log_file(i)
