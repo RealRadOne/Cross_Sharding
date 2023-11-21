@@ -11,6 +11,8 @@ use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use smallbank::SmallBankTransactionHandler;
+use std::collections::HashMap;
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,6 +22,7 @@ async fn main() -> Result<()> {
         .args_from_usage("<ADDR> 'The network address of the node where to send txs'")
         .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
         .args_from_usage("--n_users=<INT> 'Number of users in small-bank'")
+        .args_from_usage("--shards=[STRING]... 'list of Shard data'")
         .args_from_usage("--skew_factor=<FLOAT> 'Skew factor for users in small-bank'")
         .args_from_usage("--prob_choose_mtx=<FLOAT> 'Probability of choosing modifying transactions in small-bank'")
         .args_from_usage("--rate=<INT> 'The rate (txs/s) at which to send the transactions'")
@@ -46,6 +49,13 @@ async fn main() -> Result<()> {
         .unwrap()
         .parse::<u64>()
         .context("Number of users in small-bank must be a non-negative integer")?;
+    let shards = matches
+        .values_of("shards")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|x| x.parse::<String>())
+        .collect::<Result<Vec<_>, _>>()
+        .context("Invalid shard assignment format")?;
     let skew_factor = matches
         .value_of("skew_factor")
         .unwrap()
@@ -69,6 +79,25 @@ async fn main() -> Result<()> {
         .collect::<Result<Vec<_>, _>>()
         .context("Invalid socket address format")?;
 
+
+    // Shard format: eg: 2 workers, 3 parties => 2 shards
+    // [#workers, lower-range-of-shard-1, lower-range-of-shard-2, 
+    // addr-of-party-1-worker-1-assigned-to-shard-1, addr-of-party-1-worker-2-assigned-to-shard-2, 
+    // addr-of-party-2-worker-1-assigned-to-shard-1, addr-of-party-2-worker-2-assigned-to-shard-2, 
+    // addr-of-party-3-worker-1-assigned-to-shard-1, addr-of-party-3-worker-2-assigned-to-shard-2]
+    let mut shard_lower_range: Vec<u32> = Vec::new();
+    let mut shard_assignment: HashMap<u32, Vec<SocketAddr>> = HashMap::new();
+    let n_workers = shards[0].parse::<usize>().unwrap();
+
+    for i in 1..1+n_workers{
+        shard_lower_range.push(shards[i].parse::<u32>().unwrap());
+        shard_assignment.insert(shard_lower_range[i-1], Vec::<SocketAddr>::new(),);
+    }
+    for i in 1+n_workers..shards.len(){
+        let idx = i-(1+n_workers);
+        shard_assignment.entry(shard_lower_range[idx%n_workers]).or_insert_with(Vec::new).push(shards[i].parse::<SocketAddr>().unwrap());
+    }
+
     info!("Node address: {}", target);
 
     // NOTE: This log entry is used to compute performance.
@@ -76,6 +105,10 @@ async fn main() -> Result<()> {
 
     // NOTE: This log entry is used to compute performance.
     info!("# users: {}", n_users);
+
+    // NOTE: This log entry is used to compute performance.
+    info!("shard_lower_range = {:?}", shard_lower_range);
+    info!("shard_assignment = {:?}", shard_assignment);
 
     // NOTE: This log entry is used to compute performance.
     info!("Skew Factor: {}", skew_factor);

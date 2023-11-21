@@ -1,7 +1,7 @@
 # Copyright(C) Facebook, Inc. and its affiliates.
 from os.path import join
 
-from benchmark.utils import PathMaker
+from benchmark.utils import Print, PathMaker
 
 
 class CommandMaker:
@@ -46,14 +46,16 @@ class CommandMaker:
                 f'--store {store} --parameters {parameters} --size {size} --n_users {n_users} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} worker --id {id}')
 
     @staticmethod
-    def run_client(address, size, n_users, skew_factor, prob_choose_mtx, rate, nodes):
+    def run_client(address, size, n_users, shard_assignment, skew_factor, prob_choose_mtx, rate, nodes):
         assert isinstance(address, str)
         assert isinstance(size, int) and size > 0
         assert isinstance(rate, int) and rate >= 0
         assert isinstance(nodes, list)
         assert all(isinstance(x, str) for x in nodes)
+        assert isinstance(shard_assignment, list)
+        shards = f'--shards {" ".join(shard_assignment)}' if shard_assignment else ''
         nodes = f'--nodes {" ".join(nodes)}' if nodes else ''
-        return f'./benchmark_client {address} --size {size} --n_users {n_users} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} --rate {rate} {nodes}'
+        return f'./benchmark_client {address} --size {size} --n_users {n_users} {shards} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} --rate {rate} {nodes}'
 
     @staticmethod
     def kill():

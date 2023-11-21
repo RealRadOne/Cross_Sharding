@@ -39,6 +39,8 @@ class LocalBench:
         assert isinstance(debug, bool)
         Print.heading('Starting local benchmark')
 
+        Print.info(f'clients = {self.clients}, n_users = {self.n_users}, Shards = {self.shards}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
+
         # Kill any previous testbed.
         self._kill_nodes()
 
@@ -73,9 +75,23 @@ class LocalBench:
 
             self.node_parameters.print(PathMaker.parameters_file())
 
-            # Run the clients (they will wait for the nodes to be ready).
-            Print.info(f'n_users = {self.n_users}, skew_factor = {self.skew_factor}, prob_choose_mtx = {self.prob_choose_mtx}')
+            # Assign shard to each worker
             workers_addresses = committee.workers_addresses(self.faults)
+            worker_to_shard_assignment = {}
+            shard_assignment_list = [str(self.workers)]
+            for shard in self.bench_parameters.shards:
+                shard_assignment_list.append(str(shard[0]))
+            for i, addresses in enumerate(workers_addresses):
+                shard_idx = 0
+                for (id, address) in addresses:
+                    shard_range = self.bench_parameters.shards[shard_idx]
+                    worker_to_shard_assignment.update({address:shard_range})
+                    shard_assignment_list.append(address)
+                    shard_idx += 1
+            Print.info(f'shard_assignment_list = {shard_assignment_list}')
+            Print.info(f'worker_to_shard_assignment = {worker_to_shard_assignment}')
+
+            # Run the clients (they will wait for the nodes to be ready).
             rate_share = ceil(rate / committee.workers())
             for i, addresses in enumerate(workers_addresses):
                 for (id, address) in addresses:
@@ -83,6 +99,7 @@ class LocalBench:
                         address,
                         self.tx_size,
                         self.n_users,
+                        shard_assignment_list,
                         self.skew_factor,
                         self.prob_choose_mtx,
                         rate_share,

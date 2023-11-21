@@ -570,12 +570,25 @@ class CloudLabBench:
         hosts = committee.ips()
         self.kill(hosts=hosts, delete_logs=True)
 
+        # Assign shard to each worker
+        workers_addresses = committee.workers_addresses(self.faults)
+        worker_to_shard_assignment = {}
+        shard_assignment_list = [str(len(workers_addresses))]
+        for shard in self.bench_parameters.shards:
+            shard_assignment_list.append(str(shard[0]))
+        for i, addresses in enumerate(workers_addresses):
+            for (id, address) in addresses:
+                shard_range = self.bench_parameters.shards[shard_idx]
+                worker_to_shard_assignment.update(address, shard_range)
+                shard_assignment_list.append(address)
+                shard_idx += 1
+        Print.info(f'shard_assignment_list = {shard_assignment_list}')
+        Print.info(f'worker_to_shard_assignment = {worker_to_shard_assignment}')
+
         # Run the clients (they will wait for the nodes to be ready).
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
         Print.info('Booting clients...')
-        Print.info(f'n_users = {bench_parameters.n_users}, skew_factor = {bench_parameters.skew_factor}, prob_choose_mtx = {bench_parameters.prob_choose_mtx}')
-        workers_addresses = committee.workers_addresses(faults)
         rate_share = ceil(rate / committee.workers())
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
@@ -584,6 +597,7 @@ class CloudLabBench:
                     address,
                     bench_parameters.tx_size,
                     bench_parameters.n_users,
+                    str(shard_assignment_list),
                     bench_parameters.skew_factor,
                     bench_parameters.prob_choose_mtx,
                     rate_share,
@@ -680,6 +694,9 @@ class CloudLabBench:
             node_parameters = NodeParameters(node_parameters_dict)
         except ConfigError as e:
             raise BenchError('Invalid nodes or bench parameters', e)
+
+        Print.info(f'clients = {bench_parameters.clients}, n_users = {bench_parameters.n_users}, Shards = {bench_parameters.shards}, skew_factor = {bench_parameters.skew_factor}, prob_choose_mtx = {bench_parameters.prob_choose_mtx}')
+
 
         # Select which hosts to use.
         selected_hosts = self._select_hosts(bench_parameters)

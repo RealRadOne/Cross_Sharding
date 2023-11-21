@@ -206,6 +206,8 @@ class BenchParameters:
             
             self.workers = int(json['workers'])
 
+            self.clients = int(json['clients'])
+
             if 'collocate' in json:
                 self.collocate = bool(json['collocate'])
             else:
@@ -214,6 +216,23 @@ class BenchParameters:
             self.tx_size = int(json['tx_size'])
 
             self.n_users = int(json['n_users'])
+
+            shards = json['shards']
+            if isinstance(shards, list)==False:
+                raise ConfigError('Invalid shard format')
+            if not shards:
+                raise ConfigError('Missing shard configuration')
+            shards = [(int(x[0]), int(x[1])) for x in shards]
+            if len(shards) != self.workers:
+                raise ConfigError('#shards must be same as #workers')
+            if shards[len(shards)-1][1]!=self.n_users-1:
+                raise ConfigError('(0 to n_users-1) must be splitted into shards')
+            next_shard_start = 0
+            for shard in shards:
+                if shard[0]>shard[1] or shard[0]!=next_shard_start:
+                   raise ConfigError('(0 to n_users-1) must be splitted into shards')
+                next_shard_start = shard[1]+1
+            self.shards = shards
 
             self.skew_factor = float(json['skew_factor'])
 
