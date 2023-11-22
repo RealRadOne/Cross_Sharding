@@ -573,7 +573,7 @@ class CloudLabBench:
         # Assign shard to each worker
         workers_addresses = committee.workers_addresses(faults)
         worker_to_shard_assignment = {}
-        shard_assignment_list = [str(len(workers_addresses))]
+        shard_assignment_list = [str(bench_parameters.workers)]
         for shard in bench_parameters.shards:
             shard_assignment_list.append(str(shard[0]))
         for i, addresses in enumerate(workers_addresses):

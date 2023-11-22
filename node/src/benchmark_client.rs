@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     let mut shard_lower_range: Vec<u32> = Vec::new();
     let mut shard_assignment: HashMap<u32, Vec<SocketAddr>> = HashMap::new();
     let n_workers = shards[0].parse::<usize>().unwrap();
-
+    
     for i in 1..1+n_workers{
         shard_lower_range.push(shards[i].parse::<u32>().unwrap());
         shard_assignment.insert(shard_lower_range[i-1], Vec::<SocketAddr>::new(),);
