@@ -92,21 +92,25 @@ class LocalBench:
             Print.info(f'worker_to_shard_assignment = {worker_to_shard_assignment}')
 
             # Run the clients (they will wait for the nodes to be ready).
+            # TODO: find correct rate_share
             rate_share = ceil(rate / committee.workers())
-            for i, addresses in enumerate(workers_addresses):
-                for (id, address) in addresses:
-                    cmd = CommandMaker.run_client(
-                        address,
-                        self.tx_size,
-                        self.n_users,
-                        shard_assignment_list,
-                        self.skew_factor,
-                        self.prob_choose_mtx,
-                        rate_share,
-                        [x for y in workers_addresses for _, x in y]
-                    )
-                    log_file = PathMaker.client_log_file(i, id)
-                    self._background_run(cmd, log_file)
+            Print.info(f'workers_addresses = {workers_addresses}')
+            for i in range(self.clients):
+                # TODO: remove worker address altogether
+                Print.info(f'parties = {max(self.nodes)} party idx = {int(i/max(self.nodes))} worker idx = {i%self.workers}')
+                (id, address) = workers_addresses[int(i/max(self.nodes))][i%self.workers]
+                cmd = CommandMaker.run_client(
+                    address,
+                    self.tx_size,
+                    self.n_users,
+                    shard_assignment_list,
+                    self.skew_factor,
+                    self.prob_choose_mtx,
+                    rate_share,
+                    [x for y in workers_addresses for _, x in y]
+                )
+                log_file = PathMaker.client_log_file(i)
+                self._background_run(cmd, log_file)
 
             # Run the primaries (except the faulty ones).
             for i, address in enumerate(committee.primary_addresses(self.faults)):

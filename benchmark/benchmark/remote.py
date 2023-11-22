@@ -571,15 +571,16 @@ class CloudLabBench:
         self.kill(hosts=hosts, delete_logs=True)
 
         # Assign shard to each worker
-        workers_addresses = committee.workers_addresses(self.faults)
+        workers_addresses = committee.workers_addresses(faults)
         worker_to_shard_assignment = {}
         shard_assignment_list = [str(len(workers_addresses))]
-        for shard in self.bench_parameters.shards:
+        for shard in bench_parameters.shards:
             shard_assignment_list.append(str(shard[0]))
         for i, addresses in enumerate(workers_addresses):
+            shard_idx = 0
             for (id, address) in addresses:
-                shard_range = self.bench_parameters.shards[shard_idx]
-                worker_to_shard_assignment.update(address, shard_range)
+                shard_range = bench_parameters.shards[shard_idx]
+                worker_to_shard_assignment.update({address:shard_range})
                 shard_assignment_list.append(address)
                 shard_idx += 1
         Print.info(f'shard_assignment_list = {shard_assignment_list}')
@@ -589,22 +590,26 @@ class CloudLabBench:
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
         Print.info('Booting clients...')
+        # TODO: find correct rate_share
         rate_share = ceil(rate / committee.workers())
-        for i, addresses in enumerate(workers_addresses):
-            for (id, address) in addresses:
-                host = Committee.ip(address)
-                cmd = CommandMaker.run_client(
-                    address,
-                    bench_parameters.tx_size,
-                    bench_parameters.n_users,
-                    str(shard_assignment_list),
-                    bench_parameters.skew_factor,
-                    bench_parameters.prob_choose_mtx,
-                    rate_share,
-                    [x for y in workers_addresses for _, x in y]
-                )
-                log_file = PathMaker.client_log_file(i, id)
-                self._background_run(host, cmd, log_file)
+        Print.info(f'workers_addresses = {workers_addresses}')
+        for i in range(bench_parameters.clients):
+            # TODO: remove worker address altogether
+            Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
+            (id, address) = workers_addresses[int(i/max(bench_parameters.nodes))][i%bench_parameters.workers]
+            host = Committee.ip(address)
+            cmd = CommandMaker.run_client(
+                address,
+                bench_parameters.tx_size,
+                bench_parameters.n_users,
+                shard_assignment_list,
+                bench_parameters.skew_factor,
+                bench_parameters.prob_choose_mtx,
+                rate_share,
+                [x for y in workers_addresses for _, x in y]
+            )
+            log_file = PathMaker.client_log_file(i)
+            self._background_run(host, cmd, log_file)
         
         # Run the primaries (except the faulty ones).
         Print.info('Booting primaries...')
@@ -650,22 +655,32 @@ class CloudLabBench:
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
 
-    def _logs(self, committee, faults):
+    def _logs(self, committee, bench_parameters, faults):
         # Delete local logs (if any).
         cmd = CommandMaker.clean_logs()
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
         # Download log files.
         workers_addresses = committee.workers_addresses(faults)
+        client_ids = [[i, 'client'+str(i)] for i in range(bench_parameters.clients)]
+        progress = progress_bar(client_ids, prefix='Downloading client logs:')
+        for i in range(bench_parameters.clients):
+            # TODO: remove worker address altogether
+            Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
+            (id, address) = workers_addresses[int(i/max(bench_parameters.nodes))][i%bench_parameters.workers]
+            host = Committee.ip(address)
+            c = Connection(host, user=self.cloudlab_username)
+            c.get(
+                PathMaker.client_log_file(i), 
+                local=PathMaker.client_log_file(i)
+            )
+
+        workers_addresses = committee.workers_addresses(faults)
         progress = progress_bar(workers_addresses, prefix='Downloading workers logs:')
         for i, addresses in enumerate(progress):
             for id, address in addresses:
                 host = Committee.ip(address)
                 c = Connection(host, user=self.cloudlab_username)
-                c.get(
-                    PathMaker.client_log_file(i, id), 
-                    local=PathMaker.client_log_file(i, id)
-                )
                 c.get(
                     PathMaker.worker_log_file(i, id), 
                     local=PathMaker.worker_log_file(i, id)
@@ -738,7 +753,7 @@ class CloudLabBench:
                         )
 
                         faults = bench_parameters.faults
-                        logger = self._logs(committee_copy, faults)
+                        logger = self._logs(committee_copy, bench_parameters, faults)
                         logger.print(PathMaker.result_file(
                             faults,
                             n, 

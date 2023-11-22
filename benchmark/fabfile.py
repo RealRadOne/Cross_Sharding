@@ -91,7 +91,7 @@ def install(ctx):
     ''' Install the codebase on all machines '''
     try:
         # Bench(ctx).install()
-        CloudLabBench(ctx).install()
+        CloudLabBench(ctx, 'heenan').install()
     except BenchError as e:
         Print.error(e)
 
@@ -100,7 +100,7 @@ def install(ctx):
 def remote(ctx, debug=False):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'faults': 1,
+        'faults': 0,
         'nodes': [4],
         'workers': 2,
         'clients': 8,
@@ -108,7 +108,7 @@ def remote(ctx, debug=False):
         'rate': [10_000, 50_000, 110_000],
         'tx_size': 512,
         'n_users': 20,
-        'shards': [[0,49],[50,99]],
+        'shards': [[0,9],[10,19]],
         'skew_factor': 0.1,
         'prob_choose_mtx': 1.0,
         'duration': 300,
