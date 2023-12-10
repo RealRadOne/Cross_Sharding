@@ -36,14 +36,15 @@ class CommandMaker:
                 f'--store {store} --parameters {parameters} --size {size} --n_users {n_users} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} primary')
 
     @staticmethod
-    def run_worker(keys, committee, store, parameters, id, size, n_users, skew_factor, prob_choose_mtx, debug=False):
+    def run_worker(keys, committee, store, parameters, id, size, n_users, shard_assignment, skew_factor, prob_choose_mtx, debug=False):
         assert isinstance(keys, str)
         assert isinstance(committee, str)
         assert isinstance(parameters, str)
+        assert isinstance(shard_assignment, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
         return (f'./node {v} run --keys {keys} --committee {committee} '
-                f'--store {store} --parameters {parameters} --size {size} --n_users {n_users} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} worker --id {id}')
+                f'--store {store} --parameters {parameters} --size {size} --n_users {n_users} --shard {shard_assignment} --skew_factor {skew_factor} --prob_choose_mtx {prob_choose_mtx} worker --id {id}')
 
     @staticmethod
     def run_client(address, size, n_users, shard_assignment, skew_factor, prob_choose_mtx, rate, nodes):

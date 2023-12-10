@@ -131,6 +131,8 @@ class LocalBench:
             # Run the workers (except the faulty ones).
             for i, addresses in enumerate(workers_addresses):
                 for (id, address) in addresses:
+                    shard_assignment = str(worker_to_shard_assignment[address][0]) + "," + str(worker_to_shard_assignment[address][1])
+                    Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
                     cmd = CommandMaker.run_worker(
                         PathMaker.key_file(i),
                         PathMaker.committee_file(),
@@ -139,6 +141,7 @@ class LocalBench:
                         id,  # The worker's id.
                         self.tx_size,
                         self.n_users,
+                        shard_assignment,
                         self.skew_factor,
                         self.prob_choose_mtx,
                         debug=debug

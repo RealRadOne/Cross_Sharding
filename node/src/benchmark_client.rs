@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use smallbank::SmallBankTransactionHandler;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 
 #[tokio::main]
@@ -127,6 +127,8 @@ async fn main() -> Result<()> {
         sb_handler,
         rate,
         nodes,
+        shard_lower_range,
+        shard_assignment,
     };
 
     // Wait for all nodes to be online and synchronized.
@@ -142,6 +144,8 @@ struct Client {
     sb_handler: SmallBankTransactionHandler,
     rate: u64,
     nodes: Vec<SocketAddr>,
+    shard_lower_range: Vec<u32>,
+    shard_assignment: HashMap<u32, Vec<SocketAddr>>,
 }
 
 impl Client {
@@ -156,16 +160,29 @@ impl Client {
             ));
         }
 
+        // // connect to mempool
+        let mut transports = HashMap::new();
+        for worker_addr_vec in self.shard_assignment.values(){
+            for worker_address in worker_addr_vec{
+                info!("worker_address = {:?}", worker_address);
+                let stream = TcpStream::connect(worker_address)
+                    .await
+                    .context(format!("failed to connect to {}", worker_address))?; 
+                let transport = Framed::new(stream, LengthDelimitedCodec::new());
+                transports.insert(worker_address, transport);
+            }
+        }
+
         // Connect to the mempool.
-        let stream = TcpStream::connect(self.target)
-            .await
-            .context(format!("failed to connect to {}", self.target))?;
+        // let stream = TcpStream::connect(self.target)
+        //     .await
+        //     .context(format!("failed to connect to {}", self.target))?;
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
+        // let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
@@ -188,10 +205,32 @@ impl Client {
                 }
                 let bytes = self.sb_handler.get_next_transaction(x == counter % burst, tx_uid);
                 
-                if let Err(e) = transport.send(bytes).await {
-                    warn!("Failed to send transaction: {}", e);
-                    break 'main;
+                // get the target address besed on dependency
+                let dependency: (char, Vec<u32>) = self.sb_handler.get_transaction_dependency(bytes.clone());
+                let mut target_addr: HashSet<SocketAddr> = HashSet::new();
+                for dep in &dependency.1{
+                    let mut idx: usize = 0;
+                    for lower_range in &self.shard_lower_range{
+                        if dep < lower_range{ break;}
+                        idx += 1;
+                    }
+                    for addr in &self.shard_assignment[&self.shard_lower_range[idx-1]]{
+                        target_addr.insert(*addr);
+                    }
                 }
+                // info!("target_addr = {:?}", target_addr);
+
+                for addr in target_addr{
+                    let transport = &mut transports.get_mut(&addr);
+                    if let Err(e) = transport.as_mut().expect("REASON").send(bytes.clone()).await {
+                        warn!("Failed to send transaction: {}", e);
+                        break 'main;
+                    }
+                }
+                // if let Err(e) = transport.send(bytes).await {
+                //     warn!("Failed to send transaction: {}", e);
+                //     break 'main;
+                // }
             }
             if now.elapsed().as_millis() > BURST_DURATION as u128 {
                 // NOTE: This log entry is used to compute performance.

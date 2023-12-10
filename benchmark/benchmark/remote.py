@@ -633,6 +633,8 @@ class CloudLabBench:
         Print.info('Booting workers...')
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
+                shard_assignment = str(worker_to_shard_assignment[address][0]) + "," + str(worker_to_shard_assignment[address][1])
+                Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
                 host = Committee.ip(address)
                 cmd = CommandMaker.run_worker(
                     PathMaker.key_file(i),
@@ -642,6 +644,7 @@ class CloudLabBench:
                     id,  # The worker's id.
                     bench_parameters.tx_size,
                     bench_parameters.n_users,
+                    shard_assignment,
                     bench_parameters.skew_factor,
                     bench_parameters.prob_choose_mtx,
                     debug=debug

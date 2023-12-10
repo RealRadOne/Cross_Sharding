@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
                 .args_from_usage("--store=<PATH> 'The path where to create the data store'")
                 .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
                 .args_from_usage("--n_users=<INT> 'Number of users in small-bank'")
+                .args_from_usage("--shard=[STRING]... 'Shard assignment'")
                 .args_from_usage("--skew_factor=<FLOAT> 'Skew factor for users in small-bank'")
                 .args_from_usage("--prob_choose_mtx=<FLOAT> 'Probability of choosing modifying transactions in small-bank'")
                 .subcommand(SubCommand::with_name("primary").about("Run a single primary"))
