@@ -595,7 +595,7 @@ class CloudLabBench:
         Print.info(f'workers_addresses = {workers_addresses}')
         for i in range(bench_parameters.clients):
             # TODO: remove worker address altogether
-            Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
+            # Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
             (id, address) = workers_addresses[int(i/max(bench_parameters.nodes))][i%bench_parameters.workers]
             host = Committee.ip(address)
             cmd = CommandMaker.run_client(
@@ -634,7 +634,7 @@ class CloudLabBench:
         for i, addresses in enumerate(workers_addresses):
             for (id, address) in addresses:
                 shard_assignment = str(worker_to_shard_assignment[address][0]) + "," + str(worker_to_shard_assignment[address][1])
-                Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
+                # Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
                 host = Committee.ip(address)
                 cmd = CommandMaker.run_worker(
                     PathMaker.key_file(i),
@@ -669,7 +669,7 @@ class CloudLabBench:
         progress = progress_bar(client_ids, prefix='Downloading client logs:')
         for i in range(bench_parameters.clients):
             # TODO: remove worker address altogether
-            Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
+            # Print.info(f'parties = {max(bench_parameters.nodes)} party idx = {int(i/max(bench_parameters.nodes))} worker idx = {i%bench_parameters.workers}')
             (id, address) = workers_addresses[int(i/max(bench_parameters.nodes))][i%bench_parameters.workers]
             host = Committee.ip(address)
             c = Connection(host, user=self.cloudlab_username)

@@ -97,7 +97,7 @@ class LocalBench:
             Print.info(f'workers_addresses = {workers_addresses}')
             for i in range(self.clients):
                 # TODO: remove worker address altogether
-                Print.info(f'parties = {max(self.nodes)} party idx = {int(i/max(self.nodes))} worker idx = {i%self.workers}')
+                # Print.info(f'parties = {max(self.nodes)} party idx = {int(i/max(self.nodes))} worker idx = {i%self.workers}')
                 (id, address) = workers_addresses[int(i/max(self.nodes))][i%self.workers]
                 cmd = CommandMaker.run_client(
                     address,
@@ -132,7 +132,7 @@ class LocalBench:
             for i, addresses in enumerate(workers_addresses):
                 for (id, address) in addresses:
                     shard_assignment = str(worker_to_shard_assignment[address][0]) + "," + str(worker_to_shard_assignment[address][1])
-                    Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
+                    # Print.info(f'shard_assignment for the worker {address} is {shard_assignment}')
                     cmd = CommandMaker.run_worker(
                         PathMaker.key_file(i),
                         PathMaker.committee_file(),

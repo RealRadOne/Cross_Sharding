@@ -87,6 +87,13 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
         .unwrap()
         .parse::<u64>()
         .context("Number of users in small-bank must be a non-negative integer")?;
+    let shard = matches
+        .values_of("shard")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|x| x.parse::<u64>())
+        .collect::<Result<Vec<_>, _>>()
+        .context("Invalid shard assignment format")?;
     let skew_factor = matches
         .value_of("skew_factor")
         .unwrap()
@@ -150,7 +157,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
                 .unwrap()
                 .parse::<WorkerId>()
                 .context("The worker id must be a positive integer")?;
-            Worker::spawn(keypair.name, id, committee, parameters, store, sb_handler);
+            Worker::spawn(keypair.name, id, shard, committee, parameters, store, sb_handler);
         }
         _ => unreachable!(),
     }

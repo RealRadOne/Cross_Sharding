@@ -15,6 +15,9 @@ use std::convert::TryInto as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+use graph::LocalOrderGraph;
+use smallbank::SmallBankTransactionHandler;
+use petgraph::prelude::GraphMap;
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]
@@ -35,6 +38,8 @@ pub struct BatchMaker {
     tx_message: Sender<QuorumWaiterMessage>,
     /// The network addresses of the other workers that share our worker id.
     workers_addresses: Vec<(PublicKey, SocketAddr)>,
+    /// smallbank handler to get the dependency of each transaction
+    sb_handler: SmallBankTransactionHandler,
     /// Holds the current batch.
     current_batch: Batch,
     /// Holds the size of the current batch (in bytes).
@@ -50,6 +55,7 @@ impl BatchMaker {
         rx_transaction: Receiver<Transaction>,
         tx_message: Sender<QuorumWaiterMessage>,
         workers_addresses: Vec<(PublicKey, SocketAddr)>,
+        sb_handler: SmallBankTransactionHandler,
     ) {
         tokio::spawn(async move {
             Self {
@@ -58,6 +64,7 @@ impl BatchMaker {
                 rx_transaction,
                 tx_message,
                 workers_addresses,
+                sb_handler,
                 current_batch: Batch::with_capacity(batch_size * 2),
                 current_batch_size: 0,
                 network: ReliableSender::new(),
@@ -111,6 +118,21 @@ impl BatchMaker {
             .filter(|tx| tx[0] == 0u8 && tx.len() > 8)
             .filter_map(|tx| tx[1..9].try_into().ok())
             .collect();
+
+        // TODO: Graphs
+        let mut local_order: Vec<(Digest, Transaction)> = Vec::new();
+        for tx in &self.current_batch{
+            let serialized_tx = bincode::serialize(&tx).expect("Failed to serialize transaction");
+            let digest = Digest(
+                Sha512::digest(&serialized_tx).as_slice()[..32]
+                    .try_into()
+                    .unwrap(),
+            );
+            local_order.push((digest, tx.clone()));
+        };
+        let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
+        local_order_graph_obj.get_dag();
+        // let batch = local_order_graph_obj.get_dag_serialized();
 
         // Serialize the batch.
         self.current_batch_size = 0;

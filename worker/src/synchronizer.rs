@@ -163,26 +163,26 @@ impl Synchronizer {
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
                     PrimaryWorkerMessage::Execute(certificate) => {
-                        for digest in certificate.header.payload.keys() {
-                            // NOTE: This log entry is used to compute performance.
-                            // info!("Maybe potential execution point, right before garbage collection {} -> {:?}", certificate.header, digest);
+                        // for digest in certificate.header.payload.keys() {
+                        //     // NOTE: This log entry is used to compute performance.
+                        //     // info!("Maybe potential execution point, right before garbage collection {} -> {:?}", certificate.header, digest);
 
-                            match self.store.read(digest.to_vec()).await {
-                                Ok(Some(batch)) => {
-                                    match bincode::deserialize(&batch).unwrap() {
-                                        WorkerMessage::Batch(batch) => {
-                                            // info!("Maybe potential execution point," );
-                                            for tx in batch{
-                                                self.sb_handler.execute_transaction(Bytes::from(tx));
-                                            }
-                                        },
-                                        _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
-                                    }
-                                }
-                                Ok(None) => (),
-                                Err(e) => error!("{}", e),
-                            }                            
-                        }
+                        //     match self.store.read(digest.to_vec()).await {
+                        //         Ok(Some(batch)) => {
+                        //             match bincode::deserialize(&batch).unwrap() {
+                        //                 WorkerMessage::Batch(batch) => {
+                        //                     // info!("Maybe potential execution point," );
+                        //                     for tx in batch{
+                        //                         self.sb_handler.execute_transaction(Bytes::from(tx));
+                        //                     }
+                        //                 },
+                        //                 _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
+                        //             }
+                        //         }
+                        //         Ok(None) => (),
+                        //         Err(e) => error!("{}", e),
+                        //     }                            
+                        // }
                     },
                     PrimaryWorkerMessage::Cleanup(round) => {
                         // Keep track of the primary's round number.

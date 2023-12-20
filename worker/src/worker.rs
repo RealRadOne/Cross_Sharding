@@ -45,6 +45,8 @@ pub struct Worker {
     name: PublicKey,
     /// The id of this worker.
     id: WorkerId,
+    /// Shard responsibility for this worker
+    shard: Vec<u64>,
     /// The committee information.
     committee: Committee,
     /// The configuration parameters.
@@ -59,6 +61,7 @@ impl Worker {
     pub fn spawn(
         name: PublicKey,
         id: WorkerId,
+        shard: Vec<u64>,
         committee: Committee,
         parameters: Parameters,
         store: Store,
@@ -68,6 +71,7 @@ impl Worker {
         let worker = Self {
             name,
             id,
+            shard,
             committee,
             parameters,
             store,
@@ -172,6 +176,7 @@ impl Worker {
                 .iter()
                 .map(|(name, addresses)| (*name, addresses.worker_to_worker))
                 .collect(),
+            self.sb_handler.clone(),
         );
 
         // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
