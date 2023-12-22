@@ -23,6 +23,7 @@ network = { path = "../network" }
 primary = { path = "../primary" }
 smallbank = { path = "../smallbank" }
 graph = { path = "../graph" }
+debugtimer = { path = "../debugtimer" }
 
 [dev-dependencies]
 rand = "0.7.3"
