@@ -110,6 +110,10 @@ impl SmallBankTransactionHandler{
         return u32::from_be_bytes(tx_bytes.try_into().unwrap());
     }
 
+    fn _get_bytes_to_u64(&self, tx_bytes:&[u8]) -> u64{
+        return u64::from_be_bytes(tx_bytes.try_into().unwrap());
+    }
+
     fn _generate_random(&self, min:u32, max: u32) -> u32{
         let mut max = max;
         if max == MAX_AMOUNT{
@@ -495,6 +499,10 @@ impl SmallBankTransactionHandler{
 
         // Execute transaction
         self._execute_transaction(tx_id, tx);
+    }
+
+    pub fn get_transaction_uid(&self, tx: Bytes) -> u64{
+        return self._get_bytes_to_u64(&tx[1..9]);
     }
 
 }

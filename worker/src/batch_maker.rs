@@ -122,21 +122,7 @@ impl BatchMaker {
 
         // TODO: Graphs
         info!("size of current batch = {:?}", self.current_batch.len());
-        // let timer1: DebugTimer = DebugTimer::start();
-        //************************************************
-        // let mut local_order: Vec<(Digest, Transaction)> = Vec::new();
-        // self.current_batch_size = 0;
-        // let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
-        // for tx in &drained_batch{
-        //     let serialized_tx = bincode::serialize(&tx).expect("Failed to serialize transaction");
-        //     let digest = Digest(
-        //         Sha512::digest(&serialized_tx).as_slice()[..32]
-        //             .try_into()
-        //             .unwrap(),
-        //     );
-        //     local_order.push((digest, tx.clone()));
-        // };
-        //************************************************
+        // TODO: Take non-sampled transactions
         let mut local_order: Vec<(u16, Transaction)> = Vec::new();
         self.current_batch_size = 0;
         let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
@@ -145,22 +131,15 @@ impl BatchMaker {
             local_order.push((idx, tx.clone()));
             idx += 1;
         };
-        // info!("time to create digest of each transaction = {:?}", timer1.elapsed());
-        // let timer1: DebugTimer = DebugTimer::start();
+
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
-        // info!("time to create object of  = {:?}", timer1.elapsed());
-        // let timer1: DebugTimer = DebugTimer::start();
         let batch = local_order_graph_obj.get_dag_serialized();
-        // info!("time to get DAG + serialized DAG  = {:?}", timer1.elapsed());
-        //************************************************
+        
         // Serialize the batch.
         // self.current_batch_size = 0;
         // let batch: Vec<_> = self.current_batch.drain(..).collect();
-        // info!("Batch size after drain  = {:?}", batch.len());
-        // let timer1: DebugTimer = DebugTimer::start();
         let message = WorkerMessage::Batch(batch);
         let serialized = bincode::serialize(&message).expect("Failed to serialize our own batch");
-        // info!("time to final serialization  = {:?}", timer1.elapsed());
 
         #[cfg(feature = "benchmark")]
         {
@@ -185,7 +164,6 @@ impl BatchMaker {
         }
 
         // Broadcast the batch through the network.
-        // let timer1: DebugTimer = DebugTimer::start();
         let (names, addresses): (Vec<_>, _) = self.workers_addresses.iter().cloned().unzip();
         let bytes = Bytes::from(serialized.clone());
         info!("#bytes to send = {:?}", bytes.len());
@@ -199,6 +177,5 @@ impl BatchMaker {
             })
             .await
             .expect("Failed to deliver batch");
-        // info!("time to broadcast  = {:?}", timer1.elapsed());
     }
 }
