@@ -1,11 +1,12 @@
 use log::{info};
 use petgraph::graphmap::DiGraphMap;
+use petgraph::algo::{condensation, kosaraju_scc};
 use bytes::BufMut as _;
 use bytes::BytesMut;
 use bytes::Bytes;
 use crypto::Digest;
 use smallbank::SmallBankTransactionHandler;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use debugtimer::DebugTimer;
 
 
@@ -81,6 +82,103 @@ impl LocalOrderGraph{
         }
 
         return dag_vec;
+    }
+}
+
+#[derive(Clone)]
+pub struct GlobalDependencyGraph{
+    dag: DiGraphMap<u16, u8>,
+    fixed_transactions: HashSet<u16>,
+}
+
+impl GlobalDependencyGraph{
+    pub fn new(local_order_graphs: Vec<DiGraphMap<u16, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
+        info!("local order graphs are received = {:?}", local_order_graphs);
+        
+        // (1) Create an empty graph G=(V,E)
+        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+
+        // (2) Find transactions' counts
+        let mut transaction_counts: HashMap<u16, u16> = HashMap::new();
+        let mut edge_counts: HashMap<(u16,u16), u16> = HashMap::new();
+        for local_order_graph in &local_order_graphs{
+            for node in local_order_graph.nodes(){
+                let count = *transaction_counts.entry(node).or_insert(0);
+                transaction_counts.insert(node, count+1);
+            }
+            for (from, to, weight) in local_order_graph.all_edges(){
+                edge_counts.entry((from, to)).or_insert(0);
+                edge_counts.entry((to, from)).or_insert(0);
+                edge_counts.insert((from, to), edge_counts[&(from, to)]+1);
+            }
+        }
+
+        // (3) Find fixed and pending transactions and add them into the graph
+        let mut fixed_transactions: HashSet<u16> = HashSet::new();
+        for (&tx, &count) in &transaction_counts{
+            if count as f32 >= fixed_tx_threshold || count as f32 >= pending_tx_threshold{
+                dag.add_node(tx);
+            }
+            if count as f32 >= pending_tx_threshold{
+                fixed_transactions.insert(tx);
+            }
+        }
+
+        // (4) Find edges to add into the graph
+        for (&(from, to), &count) in &edge_counts{
+            if (count as f32 >= fixed_tx_threshold || count as f32 >= pending_tx_threshold) && count > edge_counts[&(to, from)]{
+                dag.add_edge(from, to, 1);
+            }
+        }
+
+        GlobalDependencyGraph{
+            dag: dag,
+            fixed_transactions: fixed_transactions,
+        }
+    }
+
+    pub fn get_dag(&self) -> &DiGraphMap<u16, u8>{
+        return &self.dag;
+    }
+
+    pub fn get_fixed_transactions(&self) -> &HashSet<u16>{
+        return &self.fixed_transactions;
+    }
+}
+
+#[derive(Clone)]
+pub struct PrunedGraph{
+    pruned_graph:  DiGraphMap<u16, u8>,
+}
+
+impl PrunedGraph{
+    pub fn new(global_dependency_graph: &DiGraphMap<u16, u8>, fixed_transactions: &HashSet<u16>, sb_handler: SmallBankTransactionHandler) -> Self {
+        let strongely_connected_components = kosaraju_scc(global_dependency_graph);
+        let mut pruned_graph:  DiGraphMap<u16, u8> = global_dependency_graph.clone();
+        let mut idx: usize = strongely_connected_components.len();
+        
+        while idx>=0{
+            let mut is_fixed: bool = false;
+            for node in &strongely_connected_components[idx]{
+                if fixed_transactions.contains(node){
+                    is_fixed = true;
+                    break;
+                }
+            }
+            if is_fixed{
+                break;
+            }
+            // All pending transactions are found in this scc : remove these
+            for &node in &strongely_connected_components[idx]{
+                pruned_graph.remove_node(node);
+            }
+            idx -= 1;
+        } 
+        
+
+        PrunedGraph{
+            pruned_graph: pruned_graph,
+        }
     }
 }
 
