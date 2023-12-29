@@ -93,7 +93,7 @@ pub struct GlobalDependencyGraph{
 
 impl GlobalDependencyGraph{
     pub fn new(local_order_graphs: Vec<DiGraphMap<u16, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
-        info!("local order graphs are received = {:?}", local_order_graphs);
+        // info!("local order graphs are received = {:?}", local_order_graphs);
         
         // (1) Create an empty graph G=(V,E)
         let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
@@ -152,10 +152,10 @@ pub struct PrunedGraph{
 }
 
 impl PrunedGraph{
-    pub fn new(global_dependency_graph: &DiGraphMap<u16, u8>, fixed_transactions: &HashSet<u16>, sb_handler: SmallBankTransactionHandler) -> Self {
+    pub fn new(global_dependency_graph: &DiGraphMap<u16, u8>, fixed_transactions: &HashSet<u16>) -> Self {
         let strongely_connected_components = kosaraju_scc(global_dependency_graph);
         let mut pruned_graph:  DiGraphMap<u16, u8> = global_dependency_graph.clone();
-        let mut idx: usize = strongely_connected_components.len();
+        let mut idx: usize = strongely_connected_components.len()-1;
         
         while idx>=0{
             let mut is_fixed: bool = false;
@@ -179,6 +179,31 @@ impl PrunedGraph{
         PrunedGraph{
             pruned_graph: pruned_graph,
         }
+    }
+
+    pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
+        return self.pruned_graph.clone();
+    }
+}
+
+#[derive(Clone)]
+pub struct GlobalOrderGraph{
+    global_order_graph:  DiGraphMap<u16, u8>,
+}
+
+impl GlobalOrderGraph{
+    pub fn new(local_order_graphs: Vec<DiGraphMap<u16, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
+        let global_dependency_graph: GlobalDependencyGraph = GlobalDependencyGraph::new(local_order_graphs, fixed_tx_threshold, pending_tx_threshold);
+        let pruned_graph: PrunedGraph = PrunedGraph::new(global_dependency_graph.get_dag(), global_dependency_graph.get_fixed_transactions());
+        let global_order_graph: DiGraphMap<u16, u8> = pruned_graph.get_dag();
+
+        GlobalOrderGraph{
+            global_order_graph: global_order_graph,
+        }
+    }
+
+    pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
+        return self.global_order_graph.clone();
     }
 }
 

@@ -15,7 +15,7 @@ use std::convert::TryInto as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
-use graph::LocalOrderGraph;
+use graph::{LocalOrderGraph, GlobalOrderGraph};
 use smallbank::SmallBankTransactionHandler;
 use petgraph::prelude::GraphMap;
 use debugtimer::DebugTimer;
@@ -133,6 +133,13 @@ impl BatchMaker {
         };
 
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
+        // let mut local_order_graphs_vec = Vec::new();
+        // for i in 0..4{
+        //     local_order_graphs_vec.push(local_order_graph_obj.get_dag());
+        // }
+        // let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(local_order_graphs_vec, 3.0, 2.5);
+        // let global_order_dag = global_order_graph_obj.get_dag();
+    
         let batch = local_order_graph_obj.get_dag_serialized();
         
         // Serialize the batch.
