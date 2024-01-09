@@ -46,6 +46,8 @@ pub enum PrimaryWorkerMessage {
     Cleanup(Round),
     /// Primary indicates execution
     Execute(Certificate),
+    /// Primary indicates round advancement
+    AdvanceRound(Round),
 }
 
 /// The messages sent by the workers to their primary.
