@@ -83,6 +83,23 @@ impl LocalOrderGraph{
 
         return dag_vec;
     }
+
+    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<u16, u8>{
+        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+        for serialized_node_info in serialized_dag{
+            match bincode::deserialize::<Vec<u16>>(&serialized_node_info).unwrap() {
+                node_info => {
+                    let node: u16 = node_info[0];
+                    dag.add_node(node);
+                    for neighbor_idx in 1..node_info.len(){
+                        dag.add_edge(node, node_info[neighbor_idx], 1);
+                    }
+                },
+                _ => panic!("Unexpected message"),
+            }
+        }
+        return dag;
+    }
 }
 
 #[derive(Clone)]
@@ -139,6 +156,22 @@ impl GlobalDependencyGraph{
 
     pub fn get_dag(&self) -> &DiGraphMap<u16, u8>{
         return &self.dag;
+    }
+
+    pub fn get_dag_serialized(&self) -> Vec<Vec<u8>>{
+        let dag: DiGraphMap<u16, u8> = self.get_dag().clone();
+        let mut dag_vec: Vec<Vec<u8>> = Vec::new();
+
+        for node in dag.nodes(){
+            let mut node_vec: Vec<u16> = Vec::new();
+            node_vec.push(node);
+            for neighbor in dag.neighbors(node){
+                node_vec.push(neighbor);
+            }
+            dag_vec.push(bincode::serialize(&node_vec).expect("Failed to serialize local order dag"));
+        }
+
+        return dag_vec;
     }
 
     pub fn get_fixed_transactions(&self) -> &HashSet<u16>{

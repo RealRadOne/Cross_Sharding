@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::quorum_waiter::QuorumWaiterMessage;
-use crate::worker::WorkerMessage;
+use crate::worker::{WorkerMessage, Round};
 use bytes::Bytes;
 #[cfg(feature = "benchmark")]
 use crypto::Digest;
@@ -14,6 +14,7 @@ use network::ReliableSender;
 use std::convert::TryInto as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::macros::support::Poll;
 use tokio::time::{sleep, Duration, Instant};
 use graph::{LocalOrderGraph, GlobalOrderGraph};
 use smallbank::SmallBankTransactionHandler;
@@ -37,6 +38,10 @@ pub struct BatchMaker {
     rx_transaction: Receiver<Transaction>,
     /// Output channel to deliver sealed batches to the `QuorumWaiter`.
     tx_message: Sender<QuorumWaiterMessage>,
+    /// Input channel to receive new round number when advanced
+    rx_batch_round: Receiver<Round>,
+    /// Current round
+    current_round: Round,
     /// The network addresses of the other workers that share our worker id.
     workers_addresses: Vec<(PublicKey, SocketAddr)>,
     /// smallbank handler to get the dependency of each transaction
@@ -55,6 +60,7 @@ impl BatchMaker {
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
         tx_message: Sender<QuorumWaiterMessage>,
+        rx_batch_round: Receiver<Round>,
         workers_addresses: Vec<(PublicKey, SocketAddr)>,
         sb_handler: SmallBankTransactionHandler,
     ) {
@@ -64,6 +70,8 @@ impl BatchMaker {
                 max_batch_delay,
                 rx_transaction,
                 tx_message,
+                rx_batch_round,
+                current_round: 1,
                 workers_addresses,
                 sb_handler,
                 current_batch: Batch::with_capacity(batch_size * 2),
@@ -81,6 +89,15 @@ impl BatchMaker {
         tokio::pin!(timer);
 
         loop {
+            // Get the new round number if advanced (non blocking)
+            match self.rx_batch_round.try_recv(){
+                Ok(round) => {
+                    info!("Update round received : {}", round);
+                    self.current_round = round;
+                },
+                _ => (),
+            }
+            
             tokio::select! {
                 // Assemble client transactions into batches of preset size.
                 Some(transaction) = self.rx_transaction.recv() => {
@@ -133,14 +150,8 @@ impl BatchMaker {
         };
 
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
-        // let mut local_order_graphs_vec = Vec::new();
-        // for i in 0..4{
-        //     local_order_graphs_vec.push(local_order_graph_obj.get_dag());
-        // }
-        // let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(local_order_graphs_vec, 3.0, 2.5);
-        // let global_order_dag = global_order_graph_obj.get_dag();
-    
         let batch = local_order_graph_obj.get_dag_serialized();
+        /// Adding current round number with this batch
         
         // Serialize the batch.
         // self.current_batch_size = 0;

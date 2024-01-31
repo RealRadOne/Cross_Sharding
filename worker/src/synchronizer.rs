@@ -43,6 +43,8 @@ pub struct Synchronizer {
     sync_retry_nodes: usize,
     /// Input channel to receive the commands from the primary.
     rx_message: Receiver<PrimaryWorkerMessage>,
+    /// Output channel tp send the new round when advanced
+    tx_batch_round: Sender<Round>,
     /// A network sender to send requests to the other workers.
     network: SimpleSender,
     /// Loosely keep track of the primary's round number (only used for cleanup).
@@ -65,6 +67,7 @@ impl Synchronizer {
         sync_retry_delay: u64,
         sync_retry_nodes: usize,
         rx_message: Receiver<PrimaryWorkerMessage>,
+        tx_batch_round: Sender<Round>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -77,6 +80,7 @@ impl Synchronizer {
                 sync_retry_delay,
                 sync_retry_nodes,
                 rx_message,
+                tx_batch_round,
                 network: SimpleSender::new(),
                 round: Round::default(),
                 pending: HashMap::new(),
@@ -163,6 +167,7 @@ impl Synchronizer {
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
                     PrimaryWorkerMessage::Execute(certificate) => {
+                        // TODO
                         // for digest in certificate.header.payload.keys() {
                         //     // NOTE: This log entry is used to compute performance.
                         //     // info!("Maybe potential execution point, right before garbage collection {} -> {:?}", certificate.header, digest);
@@ -200,6 +205,13 @@ impl Synchronizer {
                             }
                         }
                         self.pending.retain(|_, (r, _, _)| r > &mut gc_round);
+                    }
+
+                    PrimaryWorkerMessage::AdvanceRound(round) => {
+                        self.tx_batch_round
+                            .send(round)
+                            .await
+                            .expect("Failed to deliver new round");
                     }
                 },
 
