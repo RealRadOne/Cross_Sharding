@@ -10,9 +10,12 @@ use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::{info};
 use graph::{LocalOrderGraph, GlobalOrderGraph};
+use petgraph::prelude::DiGraphMap;
 
 /// Indicates a serialized `WorkerMessage::Batch` message.
 pub type SerializedBatchMessage = Vec<u8>;
+pub type Transaction = Vec<u8>;
+pub type GlobalOrder = Vec<Transaction>;
 
 #[derive(Debug)]
 pub struct GlobalOrderMakerMessage {
@@ -20,8 +23,6 @@ pub struct GlobalOrderMakerMessage {
     pub batch: SerializedBatchMessage,
     /// Whether we are processing our own batches or the batches of other nodes.
     pub own_digest: bool,
-    /// Round number in which this batch was created
-    pub round: Round,
 }
 
 /// Hashes and stores batches, it then outputs the batch's digest.
@@ -31,15 +32,15 @@ pub struct GlobalOrderMaker{
     /// Our worker's id.
     id: WorkerId,
     /// The persistent storage.
-    mut store: Store,
+    store: Store,
     /// Current round.
-    mut current_round: Round,
+    current_round: Round,
     /// Local orders
-    mut local_order_dags: Vec<DiGraphMap<u16, u8>>,
+    local_order_dags: Vec<DiGraphMap<u16, u8>>,
     /// Input channel to receive updated current round.
-    mut rx_round: Receiver<Round>,
+    rx_round: Receiver<Round>,
     /// Input channel to receive batches.
-    mut rx_batch: Receiver<GlobalOrderMakerMessage>,
+    rx_batch: Receiver<GlobalOrderMakerMessage>,
     /// Output channel to send out Global Ordered batches' digests.
     tx_digest: Sender<SerializedBatchDigestMessage>,
 }
@@ -50,7 +51,6 @@ impl GlobalOrderMaker {
         committee: Committee,
         id: WorkerId,
         mut store: Store,
-        mut current_round: Round,
         mut rx_round: Receiver<Round>,
         mut rx_batch: Receiver<GlobalOrderMakerMessage>,
         tx_digest: Sender<SerializedBatchDigestMessage>,
@@ -60,7 +60,8 @@ impl GlobalOrderMaker {
                 committee,
                 id,
                 store,
-                1,
+                current_round: 1,
+                local_order_dags: Vec::new(),
                 rx_round,
                 rx_batch,
                 tx_digest,
@@ -72,24 +73,42 @@ impl GlobalOrderMaker {
 
     /// Main loop.
     async fn run(&mut self) {
-        while let Some(GlobalOrderMakerMessage { batch, own_digest, batch_round }) = self.rx_batch.recv().await {
-            match self.rx_round.poll_recv(&mut cx) {
-                Poll::Ready(round) => {
-                    info!("Update round received : {}", round.unwrap());
-                    self.current_round = round.unwrap;
+        while let Some(GlobalOrderMakerMessage { batch, own_digest }) = self.rx_batch.recv().await {
+            // Get the new round number if advanced (non blocking)
+            match self.rx_round.try_recv(){
+                Ok(round) => {
+                    info!("Update round received : {}", round);
+                    self.current_round = round;
                     self.local_order_dags.clear();
                 },
                 _ => (),
-            };
+            }
 
-            let send_order: bool = false;
+            info!("current_round = {:?}", self.current_round);
+
+            let mut send_order: bool = false;
             // creating a Global Order
-            if batch_round == self.current_round && self.local_order_dags.len() < self.committee.quorum_threshold(){
+            if (self.local_order_dags.len() as u32) < self.committee.quorum_threshold(){
+                info!("global_order_maker-1");
                 match bincode::deserialize(&batch).unwrap() {
-                    WorkerMessage::Batch(batch) => {
-                        self.local_order_dags.push(LocalOrderGraph::get_dag_deserialized(batch));
-                        if self.local_order_dags.len() >= self.committee.quorum_threshold(){
-                            send_order = true;
+                    WorkerMessage::Batch(mut batch) => {
+                        info!("global_order_maker-2");
+                        match batch.pop() {
+                            Some(batch_round_vec) => {
+                                info!("global_order_maker-3");
+                                let batch_round_arr = batch_round_vec.try_into().unwrap_or_else(|batch_round_vec: Vec<u8>| panic!("Expected a Vec of length {} but it was {}", 8, batch_round_vec.len()));
+                                let batch_round = u64::from_le_bytes(batch_round_arr);
+                                // 
+                                if batch_round == self.current_round {
+                                    info!("global_order_maker-4");
+                                    self.local_order_dags.push(LocalOrderGraph::get_dag_deserialized(batch));
+                                    if (self.local_order_dags.len() as u32) >= self.committee.quorum_threshold(){
+                                        info!("global_order_maker-5");
+                                        send_order = true;
+                                    }
+                                }
+                            }
+                            _ => panic!("Unexpected batch round found"),
                         }
                     },
                     _ => panic!("Unexpected message"),
@@ -99,23 +118,27 @@ impl GlobalOrderMaker {
             if send_order{
                 /// TODO: Pending and fixed transaction threshold
                 // create a Global Order based on n-f received local orders 
-                let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(local_order_dags, 3.0, 2.5);
-                let global_order_dag_serialized = global_order_graph_obj.get_dag_serialized();
+                let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
+                let global_order_graph = global_order_graph_obj.get_dag_serialized();
+                let message = WorkerMessage::Batch(global_order_graph);
+                let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
 
                 // Hash the batch.
-                let digest = Digest(Sha512::digest(&global_order_dag_serialized).as_slice()[..32].try_into().unwrap());
+                let digest = Digest(Sha512::digest(&serialized).as_slice()[..32].try_into().unwrap());
 
                 // Store the batch.
-                store.write(digest.to_vec(), global_order_dag_serialized).await;
+                self.store.write(digest.to_vec(), serialized).await;
 
                 // Deliver the batch's digest.
-                let message = match own_digest {
-                    true => WorkerPrimaryMessage::OurBatch(digest, id),
-                    false => WorkerPrimaryMessage::OthersBatch(digest, id),
-                };
+                let message = WorkerPrimaryMessage::OurBatch(digest, self.id);
+                // let message = match own_digest {
+                //     true => WorkerPrimaryMessage::OurBatch(digest, self.id),
+                //     false => WorkerPrimaryMessage::OthersBatch(digest, self.id),
+                // };
+                info!("global_order_maker- Sending message to primary connector");
                 let message = bincode::serialize(&message)
                     .expect("Failed to serialize our own worker-primary message");
-                tx_digest
+                self.tx_digest
                     .send(message)
                     .await
                     .expect("Failed to send digest");

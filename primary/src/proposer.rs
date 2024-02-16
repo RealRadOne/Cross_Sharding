@@ -1,14 +1,16 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::messages::{Certificate, Header};
-use crate::primary::Round;
+use crate::primary::{Round, PrimaryWorkerMessage};
 use config::{Committee, WorkerId};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
-use log::debug;
+use log::{debug, info};
 #[cfg(feature = "benchmark")]
-use log::info;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+use network::SimpleSender;
+use bytes::Bytes;
+use std::net::SocketAddr;
 
 #[cfg(test)]
 #[path = "tests/proposer_tests.rs"]
@@ -40,6 +42,10 @@ pub struct Proposer {
     digests: Vec<(Digest, WorkerId)>,
     /// Keeps track of the size (in bytes) of batches' digests that we received so far.
     payload_size: usize,
+    /// The network addresses of our workers.
+    addresses: Vec<SocketAddr>,
+    /// A network sender to notify our workers of cleanup events.
+    network: SimpleSender,
 }
 
 impl Proposer {
@@ -59,6 +65,13 @@ impl Proposer {
             .map(|x| x.digest())
             .collect();
 
+        let addresses = committee
+            .our_workers(&name)
+            .expect("Our public key or worker id is not in the committee")
+            .iter()
+            .map(|x| x.primary_to_worker)
+            .collect();
+
         tokio::spawn(async move {
             Self {
                 name,
@@ -72,6 +85,8 @@ impl Proposer {
                 last_parents: genesis,
                 digests: Vec::with_capacity(2 * header_size),
                 payload_size: 0,
+                addresses,
+                network: SimpleSender::new(),
             }
             .run()
             .await;
@@ -88,7 +103,8 @@ impl Proposer {
             &mut self.signature_service,
         )
         .await;
-        debug!("Created {:?}", header);
+        debug!("Created header {:?}", header);
+        info!("Created header with name = {:?}, round = {:?}", self.name, self.round);
 
         #[cfg(feature = "benchmark")]
         for digest in header.payload.keys() {
@@ -116,9 +132,11 @@ impl Proposer {
             // 1. We have a quorum of certificates from the previous round and enough batches' digests;
             // 2. We have a quorum of certificates from the previous round and the specified maximum
             // inter-header delay has passed.
+            info!("payload_size = {:?}, header_size = {:?}", self.payload_size, self.header_size);
             let enough_parents = !self.last_parents.is_empty();
             let enough_digests = self.payload_size >= self.header_size;
             let timer_expired = timer.is_elapsed();
+            info!("timer_expired = {:?}, enough_digests = {:?}, enough_parents = {:?}", timer_expired, enough_digests, enough_parents);
             if (timer_expired || enough_digests) && enough_parents {
                 // Make a new header.
                 self.make_header().await;
@@ -131,6 +149,7 @@ impl Proposer {
 
             tokio::select! {
                 Some((parents, round)) = self.rx_core.recv() => {
+                    info!("Proposer receives message from core, round :: self.round = {:?} :: {:?}", round, self.round);
                     if round < self.round {
                         continue;
                     }
@@ -138,11 +157,17 @@ impl Proposer {
                     // Advance to the next round.
                     self.round = round + 1;
                     debug!("Dag moved to round {}", self.round);
+                    let serialized_round = bincode::serialize(&PrimaryWorkerMessage::AdvanceRound(self.round))
+                        .expect("Failed to serialize advanced round message");
+                    self.network
+                        .broadcast(self.addresses.clone(), Bytes::from(serialized_round))
+                        .await;
 
                     // Signal that we have enough parent certificates to propose a new header.
                     self.last_parents = parents;
                 }
                 Some((digest, worker_id)) = self.rx_workers.recv() => {
+                    info!("OurBatch = {:?} received from workerid = {:?}", digest, worker_id);
                     self.payload_size += digest.size();
                     self.digests.push((digest, worker_id));
                 }

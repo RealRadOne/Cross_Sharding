@@ -5,7 +5,7 @@ use config::{Committee, WorkerId};
 use crypto::{Digest, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
-use log::{debug, error};
+use log::{debug, error, info};
 use network::SimpleSender;
 use primary::PrimaryWorkerMessage;
 use std::collections::HashMap;
@@ -43,8 +43,10 @@ pub struct Synchronizer {
     sync_retry_nodes: usize,
     /// Input channel to receive the commands from the primary.
     rx_message: Receiver<PrimaryWorkerMessage>,
-    /// Output channel tp send the new round when advanced
+    /// Output channel to send the new round for a newly created batch when advanced
     tx_batch_round: Sender<Round>,
+    /// Output channel to send the new round for a global order creation when advanced
+    tx_global_order_round: Sender<Round>,
     /// A network sender to send requests to the other workers.
     network: SimpleSender,
     /// Loosely keep track of the primary's round number (only used for cleanup).
@@ -68,6 +70,7 @@ impl Synchronizer {
         sync_retry_nodes: usize,
         rx_message: Receiver<PrimaryWorkerMessage>,
         tx_batch_round: Sender<Round>,
+        tx_global_order_round: Sender<Round>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -81,6 +84,7 @@ impl Synchronizer {
                 sync_retry_nodes,
                 rx_message,
                 tx_batch_round,
+                tx_global_order_round,
                 network: SimpleSender::new(),
                 round: Round::default(),
                 pending: HashMap::new(),
@@ -207,11 +211,17 @@ impl Synchronizer {
                         self.pending.retain(|_, (r, _, _)| r > &mut gc_round);
                     }
 
+                    // TODO: Receive global order round from Primary
                     PrimaryWorkerMessage::AdvanceRound(round) => {
+                        info!("AdvanceRound received from Primary::Proposer = {:?}", round);
                         self.tx_batch_round
                             .send(round)
                             .await
-                            .expect("Failed to deliver new round");
+                            .expect("Failed to deliver new batch round");
+                        self.tx_global_order_round
+                            .send(round)
+                            .await
+                            .expect("Failed to deliver new global order round");   
                     }
                 },
 

@@ -150,8 +150,9 @@ impl BatchMaker {
         };
 
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
-        let batch = local_order_graph_obj.get_dag_serialized();
+        let mut batch = local_order_graph_obj.get_dag_serialized();
         /// Adding current round number with this batch
+        batch.push(self.current_round.to_le_bytes().to_vec());
         
         // Serialize the batch.
         // self.current_batch_size = 0;

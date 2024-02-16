@@ -5,6 +5,7 @@ mod primary_connector;
 mod processor;
 mod quorum_waiter;
 mod synchronizer;
+mod global_order_maker;
 mod worker;
 
 #[cfg(test)]

@@ -158,22 +158,6 @@ impl GlobalDependencyGraph{
         return &self.dag;
     }
 
-    pub fn get_dag_serialized(&self) -> Vec<Vec<u8>>{
-        let dag: DiGraphMap<u16, u8> = self.get_dag().clone();
-        let mut dag_vec: Vec<Vec<u8>> = Vec::new();
-
-        for node in dag.nodes(){
-            let mut node_vec: Vec<u16> = Vec::new();
-            node_vec.push(node);
-            for neighbor in dag.neighbors(node){
-                node_vec.push(neighbor);
-            }
-            dag_vec.push(bincode::serialize(&node_vec).expect("Failed to serialize local order dag"));
-        }
-
-        return dag_vec;
-    }
-
     pub fn get_fixed_transactions(&self) -> &HashSet<u16>{
         return &self.fixed_transactions;
     }
@@ -237,6 +221,22 @@ impl GlobalOrderGraph{
 
     pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
         return self.global_order_graph.clone();
+    }
+
+    pub fn get_dag_serialized(&self) -> Vec<Vec<u8>>{
+        let dag: DiGraphMap<u16, u8> = self.get_dag();
+        let mut dag_vec: Vec<Vec<u8>> = Vec::new();
+
+        for node in dag.nodes(){
+            let mut node_vec: Vec<u16> = Vec::new();
+            node_vec.push(node);
+            for neighbor in dag.neighbors(node){
+                node_vec.push(neighbor);
+            }
+            dag_vec.push(bincode::serialize(&node_vec).expect("Failed to serialize global order graph"));
+        }
+
+        return dag_vec;
     }
 }
 

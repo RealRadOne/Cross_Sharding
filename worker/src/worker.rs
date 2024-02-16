@@ -5,6 +5,7 @@ use crate::primary_connector::PrimaryConnector;
 use crate::processor::{Processor, SerializedBatchMessage};
 use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
+use crate::global_order_maker::{GlobalOrder, GlobalOrderMaker, GlobalOrderMakerMessage};
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -38,6 +39,7 @@ pub type SerializedBatchDigestMessage = Vec<u8>;
 pub enum WorkerMessage {
     Batch(Batch),
     BatchRequest(Vec<Digest>, /* origin */ PublicKey),
+    GlobalOrder(GlobalOrder);
 }
 
 pub struct Worker {
@@ -72,27 +74,41 @@ impl Worker {
             name,
             id,
             shard,
-            committee,
+            committee: committee.clone(),
             parameters,
-            store,
+            store: store.clone(),
             sb_handler,
         };
 
         // Spawn all worker tasks.
         let (tx_primary, rx_primary) = channel(CHANNEL_CAPACITY);
         let (tx_batch_round, rx_batch_round) = channel(CHANNEL_CAPACITY);
-        worker.handle_primary_messages(tx_batch_round);
-        worker.handle_clients_transactions(tx_primary.clone(), rx_batch_round);
-        worker.handle_workers_messages(tx_primary);
+        let (tx_global_order_round, rx_global_order_round) = channel(CHANNEL_CAPACITY);
+        let (tx_global_order_batch, rx_global_order_batch) = channel(CHANNEL_CAPACITY);
+        worker.handle_primary_messages(tx_batch_round, tx_global_order_round);
+        worker.handle_clients_transactions(rx_batch_round, tx_global_order_batch.clone());
+        worker.handle_workers_messages(tx_global_order_batch);
 
         // The `PrimaryConnector` allows the worker to send messages to its primary.
         PrimaryConnector::spawn(
             worker
-                .committee
+                .committee.clone()
                 .primary(&worker.name)
                 .expect("Our public key is not in the committee")
                 .worker_to_primary,
             rx_primary,
+        );
+
+        // The `GlobalOrderMaker` create Global order DAG based on n-f local order DAGs. 
+        // Then it hashes and stores the DAG. It then forwards the digest to the `PrimaryConnector`
+        // that will send it to our primary machine.
+        GlobalOrderMaker::spawn(
+            committee,
+            id,
+            store,
+            /* rx_round */ rx_global_order_round,
+            /* rx_batch */ rx_global_order_batch,
+            /* tx_digest */ tx_primary,
         );
 
         // NOTE: This log entry is used to compute performance.
@@ -109,7 +125,7 @@ impl Worker {
     }
 
     /// Spawn all tasks responsible to handle messages from our primary.
-    fn handle_primary_messages(&self, tx_batch_round: Sender<Round>) {
+    fn handle_primary_messages(&self, tx_batch_round: Sender<Round>, tx_global_order_round: Sender<Round>) {
         let (tx_synchronizer, rx_synchronizer) = channel(CHANNEL_CAPACITY);
 
         // Receive incoming messages from our primary.
@@ -138,6 +154,7 @@ impl Worker {
             self.parameters.sync_retry_nodes,
             /* rx_message */ rx_synchronizer,
             /* tx_batch_round */ tx_batch_round,
+            /* tx_global_order_round */ tx_global_order_round,
         );
 
         info!(
@@ -147,7 +164,7 @@ impl Worker {
     }
 
     /// Spawn all tasks responsible to handle clients transactions.
-    fn handle_clients_transactions(&self, tx_primary: Sender<SerializedBatchDigestMessage>, rx_batch_round: tokio::sync::mpsc::Receiver<Round>) {
+    fn handle_clients_transactions(&self, rx_batch_round: tokio::sync::mpsc::Receiver<Round>, tx_global_order_batch: Sender<GlobalOrderMakerMessage>) {
         let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
         let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
@@ -197,7 +214,7 @@ impl Worker {
             self.id,
             self.store.clone(),
             /* rx_batch */ rx_processor,
-            /* tx_digest */ tx_primary,
+            /* tx_global_order_batch */ tx_global_order_batch,
             /* own_batch */ true,
         );
 
@@ -208,7 +225,7 @@ impl Worker {
     }
 
     /// Spawn all tasks responsible to handle messages from other workers.
-    fn handle_workers_messages(&self, tx_primary: Sender<SerializedBatchDigestMessage>) {
+    fn handle_workers_messages(&self, tx_global_order_batch: Sender<GlobalOrderMakerMessage>) {
         let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
 
@@ -242,7 +259,7 @@ impl Worker {
             self.id,
             self.store.clone(),
             /* rx_batch */ rx_processor,
-            /* tx_digest */ tx_primary,
+            /* tx_global_order_batch */ tx_global_order_batch,
             /* own_batch */ false,
         );
 

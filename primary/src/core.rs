@@ -9,7 +9,7 @@ use bytes::Bytes;
 use config::Committee;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
-use log::{debug, error, warn};
+use log::{debug, error, warn, info};
 use network::{CancelHandler, ReliableSender};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -116,6 +116,7 @@ impl Core {
 
     async fn process_own_header(&mut self, header: Header) -> DagResult<()> {
         // Reset the votes aggregator.
+        info!("Process own header = {:?}", header);
         self.current_header = header.clone();
         self.votes_aggregator = VotesAggregator::new();
 
@@ -126,6 +127,7 @@ impl Core {
             .iter()
             .map(|(_, x)| x.primary_to_primary)
             .collect();
+        info!("Broadcast own header = {:?} to {:?}", header, addresses);
         let bytes = bincode::serialize(&PrimaryMessage::Header(header.clone()))
             .expect("Failed to serialize our own header");
         let handlers = self.network.broadcast(addresses, Bytes::from(bytes)).await;
@@ -140,7 +142,7 @@ impl Core {
 
     #[async_recursion]
     async fn process_header(&mut self, header: &Header) -> DagResult<()> {
-        debug!("Processing {:?}", header);
+        debug!("Processing header {:?}", header);
         // Indicate that we are processing this header.
         self.processing
             .entry(header.round)
@@ -190,8 +192,9 @@ impl Core {
         {
             // Make a vote and send it to the header's creator.
             let vote = Vote::new(header, &self.name, &mut self.signature_service).await;
-            debug!("Created {:?}", vote);
+            debug!("Created Vote {:?}", vote);
             if vote.origin == self.name {
+                info!("Directly Processing Vote {:?}", vote);
                 self.process_vote(vote)
                     .await
                     .expect("Failed to process our own vote");
@@ -201,6 +204,7 @@ impl Core {
                     .primary(&header.author)
                     .expect("Author of valid header is not in the committee")
                     .primary_to_primary;
+                info!("Broadcasting Vote {:?} to {:?}", vote, address);
                 let bytes = bincode::serialize(&PrimaryMessage::Vote(vote))
                     .expect("Failed to serialize our own vote");
                 let handler = self.network.send(address, Bytes::from(bytes)).await;
@@ -215,7 +219,7 @@ impl Core {
 
     #[async_recursion]
     async fn process_vote(&mut self, vote: Vote) -> DagResult<()> {
-        debug!("Processing {:?}", vote);
+        debug!("Processing Vote {:?}", vote);
 
         // Add it to the votes' aggregator and try to make a new certificate.
         if let Some(certificate) =
@@ -249,7 +253,7 @@ impl Core {
 
     #[async_recursion]
     async fn process_certificate(&mut self, certificate: Certificate) -> DagResult<()> {
-        debug!("Processing {:?}", certificate);
+        debug!("Processing certificate {:?}", certificate);
 
         // Process the header embedded in the certificate if we haven't already voted for it (if we already
         // voted, it means we already processed it). Since this header got certified, we are sure that all
@@ -353,8 +357,12 @@ impl Core {
                 Some(message) = self.rx_primaries.recv() => {
                     match message {
                         PrimaryMessage::Header(header) => {
+                            info!("PrimaryMessage::Header received = {:?}", header);
                             match self.sanitize_header(&header) {
-                                Ok(()) => self.process_header(&header).await,
+                                Ok(()) => {
+                                    info!("PrimaryMessage::Header going to process_header = {:?}", header);
+                                    self.process_header(&header).await
+                                },
                                 error => error
                             }
 

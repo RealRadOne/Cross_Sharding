@@ -58,3 +58,8 @@ The README file of the [benchmark folder](https://github.com/asonnino/narwhal/tr
 
 ## License
 This software is licensed as [Apache 2.0](LICENSE).
+
+## TODO
+#1 Check if worker 1 is sending to exactly to the worker 1 of other parties
+#2 Create Tx ids based on global Tx ids
+ 
