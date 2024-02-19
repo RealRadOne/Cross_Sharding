@@ -3,9 +3,11 @@ use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use crate::helper::Helper;
 use crate::primary_connector::PrimaryConnector;
 use crate::processor::{Processor, SerializedBatchMessage};
+use crate::global_order_processor::{GlobalOrderProcessor, SerializedGlobalOrderMessage};
 use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
 use crate::global_order_maker::{GlobalOrder, GlobalOrderMaker, GlobalOrderMakerMessage};
+use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiter;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -39,7 +41,7 @@ pub type SerializedBatchDigestMessage = Vec<u8>;
 pub enum WorkerMessage {
     Batch(Batch),
     BatchRequest(Vec<Digest>, /* origin */ PublicKey),
-    GlobalOrder(GlobalOrder);
+    GlobalOrder(GlobalOrder),
 }
 
 pub struct Worker {
@@ -85,9 +87,49 @@ impl Worker {
         let (tx_batch_round, rx_batch_round) = channel(CHANNEL_CAPACITY);
         let (tx_global_order_round, rx_global_order_round) = channel(CHANNEL_CAPACITY);
         let (tx_global_order_batch, rx_global_order_batch) = channel(CHANNEL_CAPACITY);
+        let (tx_global_order_quorum_waiter, rx_global_order_quorum_waiter) = channel(CHANNEL_CAPACITY);
+        let (tx_global_order_processor, rx_global_order_processor) = channel(CHANNEL_CAPACITY);
         worker.handle_primary_messages(tx_batch_round, tx_global_order_round);
         worker.handle_clients_transactions(rx_batch_round, tx_global_order_batch.clone());
-        worker.handle_workers_messages(tx_global_order_batch);
+        worker.handle_workers_messages(tx_global_order_batch, tx_primary.clone());
+
+        // The `GlobalOrderMaker` create Global order DAG based on n-f local order DAGs. 
+        // Then it hashes and stores the DAG. It then forwards the digest to the `PrimaryConnector`
+        // that will send it to our primary machine.
+        GlobalOrderMaker::spawn(
+            committee.clone(),
+            id,
+            store.clone(),
+            /* rx_round */ rx_global_order_round,
+            /* rx_batch */ rx_global_order_batch,
+            // /* tx_digest */ tx_primary,
+            /* tx_message */ tx_global_order_quorum_waiter,
+            /* workers_addresses */
+            committee
+                .others_workers(&name, &id)
+                .iter()
+                .map(|(name, addresses)| (*name, addresses.worker_to_worker))
+                .collect(),
+        );
+
+        // The `QuorumWaiter` waits for 2f authorities to acknowledge reception of the batch. It then forwards
+        // the batch to the `Processor`.
+        GlobalOrderQuorumWaiter::spawn(
+            committee.clone(),
+            /* stake */ committee.stake(&name),
+            /* rx_message */ rx_global_order_quorum_waiter,
+            /* tx_order */ tx_global_order_processor,
+        );
+
+        // The `GlobalOrderProcessor` hashes and stores the global order. It then forwards the batch's digest to the `PrimaryConnector`
+        // that will send it to our primary machine.
+        GlobalOrderProcessor::spawn(
+            id,
+            store,
+            /* rx_global_order */ rx_global_order_processor,
+            /* tx_digest */ tx_primary,
+            /* own_batch */ true,
+        );
 
         // The `PrimaryConnector` allows the worker to send messages to its primary.
         PrimaryConnector::spawn(
@@ -97,18 +139,6 @@ impl Worker {
                 .expect("Our public key is not in the committee")
                 .worker_to_primary,
             rx_primary,
-        );
-
-        // The `GlobalOrderMaker` create Global order DAG based on n-f local order DAGs. 
-        // Then it hashes and stores the DAG. It then forwards the digest to the `PrimaryConnector`
-        // that will send it to our primary machine.
-        GlobalOrderMaker::spawn(
-            committee,
-            id,
-            store,
-            /* rx_round */ rx_global_order_round,
-            /* rx_batch */ rx_global_order_batch,
-            /* tx_digest */ tx_primary,
         );
 
         // NOTE: This log entry is used to compute performance.
@@ -225,9 +255,10 @@ impl Worker {
     }
 
     /// Spawn all tasks responsible to handle messages from other workers.
-    fn handle_workers_messages(&self, tx_global_order_batch: Sender<GlobalOrderMakerMessage>) {
+    fn handle_workers_messages(&self, tx_global_order_batch: Sender<GlobalOrderMakerMessage>, tx_primary: Sender<SerializedBatchDigestMessage>) {
         let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
+        let (tx_global_order_processor, rx_global_order_processor) = channel(CHANNEL_CAPACITY);
 
         // Receive incoming messages from other workers.
         let mut address = self
@@ -242,6 +273,7 @@ impl Worker {
             WorkerReceiverHandler {
                 tx_helper,
                 tx_processor,
+                tx_global_order_processor,
             },
         );
 
@@ -260,6 +292,16 @@ impl Worker {
             self.store.clone(),
             /* rx_batch */ rx_processor,
             /* tx_global_order_batch */ tx_global_order_batch,
+            /* own_batch */ false,
+        );
+
+        // The `GlobalOrderProcessor` hashes and stores the batches we receive from the other workers. It then forwards the
+        // batch's digest to the `PrimaryConnector` that will send it to our primary.
+        GlobalOrderProcessor::spawn(
+            self.id,
+            self.store.clone(),
+            /* rx_global_order */ rx_global_order_processor,
+            /* tx_digest */ tx_primary,
             /* own_batch */ false,
         );
 
@@ -296,6 +338,7 @@ impl MessageHandler for TxReceiverHandler {
 struct WorkerReceiverHandler {
     tx_helper: Sender<(Vec<Digest>, PublicKey)>,
     tx_processor: Sender<SerializedBatchMessage>,
+    tx_global_order_processor: Sender<SerializedGlobalOrderMessage>,
 }
 
 #[async_trait]
@@ -316,6 +359,12 @@ impl MessageHandler for WorkerReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send batch request"),
+            Ok(WorkerMessage::GlobalOrder(..)) => self
+                .tx_global_order_processor
+                .send(serialized.to_vec())
+                .await
+                .expect("Failed to send other workers' global order to the global order processor"),
+
             Err(e) => warn!("Serialization error: {}", e),
         }
         Ok(())

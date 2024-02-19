@@ -1,16 +1,21 @@
-// Copyright(C) Facebook, Inc. and its affiliates.
+// Copyright(C) Heena Nagda.
+use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiterMessage;
 use crate::worker::{Round, SerializedBatchDigestMessage, WorkerMessage};
 use config::{WorkerId, Committee};
 use crypto::Digest;
+use crypto::PublicKey;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use primary::WorkerPrimaryMessage;
 use std::convert::TryInto;
+use std::net::SocketAddr;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::{info};
 use graph::{LocalOrderGraph, GlobalOrderGraph};
 use petgraph::prelude::DiGraphMap;
+use network::ReliableSender;
+use bytes::Bytes;
 
 /// Indicates a serialized `WorkerMessage::Batch` message.
 pub type SerializedBatchMessage = Vec<u8>;
@@ -41,8 +46,14 @@ pub struct GlobalOrderMaker{
     rx_round: Receiver<Round>,
     /// Input channel to receive batches.
     rx_batch: Receiver<GlobalOrderMakerMessage>,
-    /// Output channel to send out Global Ordered batches' digests.
-    tx_digest: Sender<SerializedBatchDigestMessage>,
+    // /// Output channel to send out Global Ordered batches' digests.
+    // tx_digest: Sender<SerializedBatchDigestMessage>,
+    /// Output channel to deliver sealed Global Order to the `GlobalOrderQuorumWaiter`.
+    tx_message: Sender<GlobalOrderQuorumWaiterMessage>,
+    /// The network addresses of the other workers that share our worker id.
+    workers_addresses: Vec<(PublicKey, SocketAddr)>,
+    /// A network sender to broadcast the batches to the other workers.
+    network: ReliableSender,
 }
 
 impl GlobalOrderMaker {
@@ -53,7 +64,9 @@ impl GlobalOrderMaker {
         mut store: Store,
         mut rx_round: Receiver<Round>,
         mut rx_batch: Receiver<GlobalOrderMakerMessage>,
-        tx_digest: Sender<SerializedBatchDigestMessage>,
+        // tx_digest: Sender<SerializedBatchDigestMessage>,
+        tx_message: Sender<GlobalOrderQuorumWaiterMessage>,
+        workers_addresses: Vec<(PublicKey, SocketAddr)>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -64,7 +77,10 @@ impl GlobalOrderMaker {
                 local_order_dags: Vec::new(),
                 rx_round,
                 rx_batch,
-                tx_digest,
+                // tx_digest,
+                tx_message,
+                workers_addresses,
+                network: ReliableSender::new(),
             }
             .run()
             .await;
@@ -120,28 +136,52 @@ impl GlobalOrderMaker {
                 // create a Global Order based on n-f received local orders 
                 let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
                 let global_order_graph = global_order_graph_obj.get_dag_serialized();
-                let message = WorkerMessage::Batch(global_order_graph);
+                
+                
+                let message = WorkerMessage::GlobalOrder(global_order_graph);
                 let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
 
-                // Hash the batch.
-                let digest = Digest(Sha512::digest(&serialized).as_slice()[..32].try_into().unwrap());
+                // Broadcast the batch through the network.
+                let (names, addresses): (Vec<_>, _) = self.workers_addresses.iter().cloned().unzip();
+                let bytes = Bytes::from(serialized.clone());
+                let handlers = self.network.broadcast(addresses, bytes).await;
+                
+                // Send the batch through the deliver channel for further processing.
+                self.tx_message
+                .send(GlobalOrderQuorumWaiterMessage {
+                    global_order: serialized,
+                    handlers: names.into_iter().zip(handlers.into_iter()).collect(),
+                })
+                .await
+                .expect("Failed to deliver global order");
+                
+                
+                
+                
+                
+                // ///////////////////////old//////////////////////
+                // let message = WorkerMessage::Batch(global_order_graph);
+                // let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
 
-                // Store the batch.
-                self.store.write(digest.to_vec(), serialized).await;
+                // // Hash the batch.
+                // let digest = Digest(Sha512::digest(&serialized).as_slice()[..32].try_into().unwrap());
 
-                // Deliver the batch's digest.
-                let message = WorkerPrimaryMessage::OurBatch(digest, self.id);
-                // let message = match own_digest {
-                //     true => WorkerPrimaryMessage::OurBatch(digest, self.id),
-                //     false => WorkerPrimaryMessage::OthersBatch(digest, self.id),
-                // };
-                info!("global_order_maker- Sending message to primary connector");
-                let message = bincode::serialize(&message)
-                    .expect("Failed to serialize our own worker-primary message");
-                self.tx_digest
-                    .send(message)
-                    .await
-                    .expect("Failed to send digest");
+                // // Store the batch.
+                // self.store.write(digest.to_vec(), serialized).await;
+
+                // // Deliver the batch's digest.
+                // let message = WorkerPrimaryMessage::OurBatch(digest, self.id);
+                // // let message = match own_digest {
+                // //     true => WorkerPrimaryMessage::OurBatch(digest, self.id),
+                // //     false => WorkerPrimaryMessage::OthersBatch(digest, self.id),
+                // // };
+                // info!("global_order_maker- Sending message to primary connector");
+                // let message = bincode::serialize(&message)
+                //     .expect("Failed to serialize our own worker-primary message");
+                // self.tx_digest
+                //     .send(message)
+                //     .await
+                //     .expect("Failed to send digest");
             }
         }
     }
