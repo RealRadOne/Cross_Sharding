@@ -172,14 +172,14 @@ impl BatchMaker {
             for id in tx_ids {
                 // NOTE: This log entry is used to compute performance.
                 info!(
-                    "Batch {:?} contains sample tx {}",
+                    "Batch {:?} ----- {}",
                     digest,
                     u64::from_be_bytes(id)
                 );
             }
 
             // NOTE: This log entry is used to compute performance.
-            info!("Batch {:?} contains {} B", digest, size);
+            info!("Batch {:?} ------ {} B", digest, size);
         }
 
         // Broadcast the batch through the network.

@@ -6,6 +6,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use network::CancelHandler;
 use tokio::sync::mpsc::{Receiver, Sender};
+use log::info;
 
 #[derive(Debug)]
 pub struct GlobalOrderQuorumWaiterMessage {
@@ -70,7 +71,9 @@ impl GlobalOrderQuorumWaiter {
             let mut total_stake = self.stake;
             while let Some(stake) = wait_for_quorum.next().await {
                 total_stake += stake;
+                info!("Sending Global order to Orther workers");
                 if total_stake >= self.committee.quorum_threshold() {
+                    info!("Received 2f acks, Sending Global order to the global order processor");
                     self.tx_order
                         .send(global_order)
                         .await

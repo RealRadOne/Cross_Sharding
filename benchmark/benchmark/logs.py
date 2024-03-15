@@ -58,6 +58,8 @@ class LogParser:
         self.sizes = {
             k: v for x in sizes for k, v in x.items() if k in self.commits
         }
+        print("sizes = ", sizes)
+        print("self.sizes = ", self.sizes)
 
         # Determine whether the primary and the workers are collocated.
         self.collocate = set(primary_ips) == set(workers_ips)
@@ -160,10 +162,12 @@ class LogParser:
         bytes = sum(self.sizes.values())
         bps = bytes / duration
         tps = bps / self.size[0]
+        print("_consensus_throughput :: ", "start = ", start,  " end = ", end, " duration = ", duration, " bytes = ", bytes, " bps = ", bps, " tps = ", tps)
         return tps, bps, duration
 
     def _consensus_latency(self):
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
+        # print("_consensus_latency :: ", "latency = ", latency)
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self):

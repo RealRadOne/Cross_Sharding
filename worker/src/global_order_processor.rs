@@ -9,6 +9,7 @@ use primary::WorkerPrimaryMessage;
 use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use log::info;
 
 /// Indicates a serialized `WorkerMessage::GlobalOrder` message.
 pub type SerializedGlobalOrderMessage = Vec<u8>;
@@ -32,6 +33,7 @@ impl GlobalOrderProcessor {
     ) {
         tokio::spawn(async move {
             while let Some(global_order) = rx_global_order.recv().await {
+                info!("Received Global order to process further. own_digest = {:?}", own_digest);
                 // Hash the batch.
                 let digest = Digest(Sha512::digest(&global_order).as_slice()[..32].try_into().unwrap());
 
@@ -43,6 +45,7 @@ impl GlobalOrderProcessor {
                     true => WorkerPrimaryMessage::OurBatch(digest, id),
                     false => WorkerPrimaryMessage::OthersBatch(digest, id),
                 };
+                info!("Sending digest to primary connector. own_digest = {:?}", own_digest);
                 let message = bincode::serialize(&message)
                     .expect("Failed to serialize our own worker-primary message");
                 tx_digest

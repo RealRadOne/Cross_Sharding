@@ -290,6 +290,7 @@ impl Core {
             .append(certificate.clone(), &self.committee)?
         {
             // Send it to the `Proposer`.
+            info!("send certificate to the proposer, certificate = {:?}", certificate);
             self.tx_proposer
                 .send((parents, certificate.round()))
                 .await

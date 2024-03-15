@@ -8,6 +8,7 @@ mod synchronizer;
 mod global_order_maker;
 mod global_order_quorum_waiter;
 mod global_order_processor;
+mod missing_edge_manager;
 mod worker;
 
 #[cfg(test)]

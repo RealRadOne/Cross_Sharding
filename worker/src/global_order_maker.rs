@@ -141,12 +141,35 @@ impl GlobalOrderMaker {
                 let message = WorkerMessage::GlobalOrder(global_order_graph);
                 let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
 
+                #[cfg(feature = "benchmark")]
+                {
+                    // NOTE: This is one extra hash that is only needed to print the following log entries.
+                    let digest = Digest(
+                        Sha512::digest(&serialized).as_slice()[..32]
+                            .try_into()
+                            .unwrap(),
+                    );
+
+                    for id in 1..=4 {
+                        // NOTE: This log entry is used to compute performance.
+                        info!(
+                            "Batch {:?} contains sample tx {}",
+                            digest,
+                            id
+                        );
+                    }
+
+                    // NOTE: This log entry is used to compute performance.
+                    info!("Batch {:?} contains {} B", digest, 512*4);
+                }
+
                 // Broadcast the batch through the network.
                 let (names, addresses): (Vec<_>, _) = self.workers_addresses.iter().cloned().unzip();
                 let bytes = Bytes::from(serialized.clone());
                 let handlers = self.network.broadcast(addresses, bytes).await;
                 
                 // Send the batch through the deliver channel for further processing.
+                info!("Send Global order to Quorum Waiter");
                 self.tx_message
                 .send(GlobalOrderQuorumWaiterMessage {
                     global_order: serialized,
