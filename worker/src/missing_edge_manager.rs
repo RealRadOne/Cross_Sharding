@@ -3,14 +3,13 @@ use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
 use serde::{Deserialize, Serialize};
-use crypto::Digest;
 use store::Store;
 use config::Committee;
 use log::{error, warn};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum EdgeManagerFormat {
-    MissingEdgeFormat(Vec<Digest>),
+    MissingEdgeFormat(Vec<u16>),
 }
 
 #[derive(Clone)]
@@ -28,7 +27,7 @@ impl MissingEdgeManager {
     }
     // self.round.to_le_bytes()
     // let batch_round = u64::from_le_bytes(batch_round_arr);
-    pub async fn add_missing_edge(mut self, v1: Digest, v2: Digest) {
+    pub async fn add_missing_edge(&mut self, v1: u16, v2: u16) {
 
         let message_fwd = EdgeManagerFormat::MissingEdgeFormat(vec![v1, v2]);
         let message_rev = EdgeManagerFormat::MissingEdgeFormat(vec![v2, v1]);
@@ -39,7 +38,7 @@ impl MissingEdgeManager {
 
         // check if this edge is already exists
         match self.store.read(serialized_fwd.to_vec()).await {
-            Ok(Some(count_arr)) => (),
+            Ok(Some(_count_arr)) => (),
             Ok(None) => {
                 let count: u64 = 0;
                 self.store.write(serialized_fwd, count.to_le_bytes().to_vec()).await;
@@ -49,19 +48,19 @@ impl MissingEdgeManager {
         }
     }
 
-    pub async fn is_missing_edge(mut self, from: Digest, to: Digest) -> bool {
+    pub async fn is_missing_edge(&mut self, from: u16, to: u16) -> bool {
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store");
         
         match self.store.read(serialized).await {
-            Ok(Some(count_arr)) => return true,
+            Ok(Some(_count_arr)) => return true,
             Ok(None) => return false,
             Err(e) => error!("Error while checking if there is a missing edge = {}", e),
         }
         return false;
     }
 
-    pub async fn add_updated_edge(mut self, from: Digest, to: Digest) -> bool{
+    pub async fn add_updated_edge(&mut self, from: u16, to: u16) -> bool{
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize updated edge while adding into the store");
 
@@ -80,7 +79,7 @@ impl MissingEdgeManager {
         return false;
     }
 
-    // pub async fn is_missing_edge_updated(self, from: Digest, to: Digest) -> bool {
+    // pub async fn is_missing_edge_updated(self, from: u16, to: u16) -> bool {
     //     return true;
     // }
 

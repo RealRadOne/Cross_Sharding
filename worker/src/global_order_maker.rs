@@ -1,6 +1,7 @@
 // Copyright(C) Heena Nagda.
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiterMessage;
 use crate::worker::{Round, SerializedBatchDigestMessage, WorkerMessage};
+use crate::missing_edge_manager::MissingEdgeManager;
 use config::{WorkerId, Committee};
 use crypto::Digest;
 use crypto::PublicKey;
@@ -38,10 +39,14 @@ pub struct GlobalOrderMaker{
     id: WorkerId,
     /// The persistent storage.
     store: Store,
+    /// Object of missing_edge_manager
+    missed_edge_manager: MissingEdgeManager,
     /// Current round.
     current_round: Round,
     /// Local orders
     local_order_dags: Vec<DiGraphMap<u16, u8>>,
+    /// fully updated edges in a round
+    fully_updated_edges: Vec<(u16, u16)>,
     /// Input channel to receive updated current round.
     rx_round: Receiver<Round>,
     /// Input channel to receive batches.
@@ -56,12 +61,14 @@ pub struct GlobalOrderMaker{
     network: ReliableSender,
 }
 
+
 impl GlobalOrderMaker {
     /// Spawn a new GlobalOrderMaker.
     pub fn spawn(
         committee: Committee,
         id: WorkerId,
         mut store: Store,
+        mut missed_edge_manager: MissingEdgeManager,
         mut rx_round: Receiver<Round>,
         mut rx_batch: Receiver<GlobalOrderMakerMessage>,
         // tx_digest: Sender<SerializedBatchDigestMessage>,
@@ -73,8 +80,10 @@ impl GlobalOrderMaker {
                 committee,
                 id,
                 store,
+                missed_edge_manager,
                 current_round: 1,
                 local_order_dags: Vec::new(),
+                fully_updated_edges: Vec::new(),
                 rx_round,
                 rx_batch,
                 // tx_digest,
@@ -96,6 +105,7 @@ impl GlobalOrderMaker {
                     info!("Update round received : {}", round);
                     self.current_round = round;
                     self.local_order_dags.clear();
+                    self.fully_updated_edges.clear();
                 },
                 _ => (),
             }
@@ -105,21 +115,19 @@ impl GlobalOrderMaker {
             let mut send_order: bool = false;
             // creating a Global Order
             if (self.local_order_dags.len() as u32) < self.committee.quorum_threshold(){
-                info!("global_order_maker-1");
                 match bincode::deserialize(&batch).unwrap() {
                     WorkerMessage::Batch(mut batch) => {
-                        info!("global_order_maker-2");
                         match batch.pop() {
                             Some(batch_round_vec) => {
-                                info!("global_order_maker-3");
                                 let batch_round_arr = batch_round_vec.try_into().unwrap_or_else(|batch_round_vec: Vec<u8>| panic!("Expected a Vec of length {} but it was {}", 8, batch_round_vec.len()));
                                 let batch_round = u64::from_le_bytes(batch_round_arr);
                                 // 
                                 if batch_round == self.current_round {
-                                    info!("global_order_maker-4");
-                                    self.local_order_dags.push(LocalOrderGraph::get_dag_deserialized(batch));
+                                    let dag = LocalOrderGraph::get_dag_deserialized(batch);
+                                    let mut updated_edges = self.update_missed_edges(dag.clone()).await;
+                                    self.fully_updated_edges.append(&mut updated_edges);
+                                    self.local_order_dags.push(dag);
                                     if (self.local_order_dags.len() as u32) >= self.committee.quorum_threshold(){
-                                        info!("global_order_maker-5");
                                         send_order = true;
                                     }
                                 }
@@ -207,5 +215,18 @@ impl GlobalOrderMaker {
                 //     .expect("Failed to send digest");
             }
         }
+    }
+
+    /// 
+    async fn update_missed_edges(&mut self, dag: DiGraphMap<u16, u8>) -> Vec<(u16, u16)>{
+        let mut updated_edges = Vec::<(u16, u16)>::new();
+        for (from, to, weight) in dag.all_edges(){
+            if self.missed_edge_manager.is_missing_edge(from, to).await {
+                if self.missed_edge_manager.add_updated_edge(from, to).await{
+                    updated_edges.push((from, to));
+                }
+            }
+        }
+        return updated_edges;
     }
 }

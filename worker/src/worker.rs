@@ -8,6 +8,7 @@ use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
 use crate::global_order_maker::{GlobalOrder, GlobalOrderMaker, GlobalOrderMakerMessage};
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiter;
+use crate::missing_edge_manager::MissingEdgeManager;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -59,6 +60,8 @@ pub struct Worker {
     store: Store,
     // small-bank handler to execute transacrtions
     sb_handler: SmallBankTransactionHandler,
+    // Object of missing edge manager
+    missed_edge_manager: MissingEdgeManager,
 }
 
 impl Worker {
@@ -72,6 +75,8 @@ impl Worker {
         sb_handler: SmallBankTransactionHandler,
     ) {
         // Define a worker instance.
+        let missed_edge_manager = MissingEdgeManager::new(store.clone(), committee.clone());
+
         let worker = Self {
             name,
             id,
@@ -80,6 +85,7 @@ impl Worker {
             parameters,
             store: store.clone(),
             sb_handler,
+            missed_edge_manager: missed_edge_manager.clone(),
         };
 
         // Spawn all worker tasks.
@@ -100,6 +106,7 @@ impl Worker {
             committee.clone(),
             id,
             store.clone(),
+            missed_edge_manager.clone(),
             /* rx_round */ rx_global_order_round,
             /* rx_batch */ rx_global_order_batch,
             // /* tx_digest */ tx_primary,
