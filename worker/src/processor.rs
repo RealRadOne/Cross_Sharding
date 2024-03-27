@@ -1,12 +1,12 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use crate::worker::SerializedBatchDigestMessage;
+// use crate::worker::SerializedBatchDigestMessage;
 use crate::global_order_maker::GlobalOrderMakerMessage;
 use config::WorkerId;
-use crypto::Digest;
-use ed25519_dalek::Digest as _;
-use ed25519_dalek::Sha512;
-use primary::WorkerPrimaryMessage;
-use std::convert::TryInto;
+// use crypto::Digest;
+// use ed25519_dalek::Digest as _;
+// use ed25519_dalek::Sha512;
+// use primary::WorkerPrimaryMessage;
+// use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 

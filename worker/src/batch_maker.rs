@@ -14,12 +14,11 @@ use network::ReliableSender;
 use std::convert::TryInto as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::macros::support::Poll;
+// use tokio::macros::support::Poll;
 use tokio::time::{sleep, Duration, Instant};
-use graph::{LocalOrderGraph, GlobalOrderGraph};
+use graph::LocalOrderGraph;
 use smallbank::SmallBankTransactionHandler;
-use petgraph::prelude::GraphMap;
-use debugtimer::DebugTimer;
+// use debugtimer::DebugTimer;
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]

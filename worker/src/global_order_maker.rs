@@ -1,13 +1,13 @@
 // Copyright(C) Heena Nagda.
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiterMessage;
-use crate::worker::{Round, SerializedBatchDigestMessage, WorkerMessage};
+use crate::worker::{Round, WorkerMessage};
+// use crate::worker::SerializedBatchDigestMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use config::{WorkerId, Committee};
 use crypto::Digest;
 use crypto::PublicKey;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
-use primary::WorkerPrimaryMessage;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use store::Store;
@@ -45,8 +45,6 @@ pub struct GlobalOrderMaker{
     current_round: Round,
     /// Local orders
     local_order_dags: Vec<DiGraphMap<u16, u8>>,
-    /// fully updated edges in a round
-    fully_updated_edges: Vec<(u16, u16)>,
     /// Input channel to receive updated current round.
     rx_round: Receiver<Round>,
     /// Input channel to receive batches.
@@ -83,7 +81,6 @@ impl GlobalOrderMaker {
                 missed_edge_manager,
                 current_round: 1,
                 local_order_dags: Vec::new(),
-                fully_updated_edges: Vec::new(),
                 rx_round,
                 rx_batch,
                 // tx_digest,
@@ -105,7 +102,6 @@ impl GlobalOrderMaker {
                     info!("Update round received : {}", round);
                     self.current_round = round;
                     self.local_order_dags.clear();
-                    self.fully_updated_edges.clear();
                 },
                 _ => (),
             }
@@ -124,8 +120,7 @@ impl GlobalOrderMaker {
                                 // 
                                 if batch_round == self.current_round {
                                     let dag = LocalOrderGraph::get_dag_deserialized(batch);
-                                    let mut updated_edges = self.update_missed_edges(dag.clone()).await;
-                                    self.fully_updated_edges.append(&mut updated_edges);
+                                    self.update_missed_edges(dag.clone()).await;
                                     self.local_order_dags.push(dag);
                                     if (self.local_order_dags.len() as u32) >= self.committee.quorum_threshold(){
                                         send_order = true;
@@ -144,7 +139,12 @@ impl GlobalOrderMaker {
                 // create a Global Order based on n-f received local orders 
                 let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
                 let global_order_graph = global_order_graph_obj.get_dag_serialized();
+                let missed_edges = global_order_graph_obj.get_missed_edges();
                 
+                for ((from, to), count) in &missed_edges{
+                    self.missed_edge_manager.add_missing_edge(*from, *to);
+                    self.missed_edge_manager.add_updated_edge(*from, *to, *count);
+                }
                 
                 let message = WorkerMessage::GlobalOrder(global_order_graph);
                 let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
@@ -185,48 +185,16 @@ impl GlobalOrderMaker {
                 })
                 .await
                 .expect("Failed to deliver global order");
-                
-                
-                
-                
-                
-                // ///////////////////////old//////////////////////
-                // let message = WorkerMessage::Batch(global_order_graph);
-                // let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
-
-                // // Hash the batch.
-                // let digest = Digest(Sha512::digest(&serialized).as_slice()[..32].try_into().unwrap());
-
-                // // Store the batch.
-                // self.store.write(digest.to_vec(), serialized).await;
-
-                // // Deliver the batch's digest.
-                // let message = WorkerPrimaryMessage::OurBatch(digest, self.id);
-                // // let message = match own_digest {
-                // //     true => WorkerPrimaryMessage::OurBatch(digest, self.id),
-                // //     false => WorkerPrimaryMessage::OthersBatch(digest, self.id),
-                // // };
-                // info!("global_order_maker- Sending message to primary connector");
-                // let message = bincode::serialize(&message)
-                //     .expect("Failed to serialize our own worker-primary message");
-                // self.tx_digest
-                //     .send(message)
-                //     .await
-                //     .expect("Failed to send digest");
             }
         }
     }
 
-    /// 
-    async fn update_missed_edges(&mut self, dag: DiGraphMap<u16, u8>) -> Vec<(u16, u16)>{
-        let mut updated_edges = Vec::<(u16, u16)>::new();
+    /// Update the edges those were missed in previous global order, and now found in new set of transactions
+    async fn update_missed_edges(&mut self, dag: DiGraphMap<u16, u8>){
         for (from, to, weight) in dag.all_edges(){
             if self.missed_edge_manager.is_missing_edge(from, to).await {
-                if self.missed_edge_manager.add_updated_edge(from, to).await{
-                    updated_edges.push((from, to));
-                }
+                self.missed_edge_manager.add_updated_edge(from, to, 1).await;
             }
         }
-        return updated_edges;
     }
 }

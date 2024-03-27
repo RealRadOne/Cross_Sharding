@@ -1,6 +1,5 @@
 // Copyright(C) Heena Nagda.
 use crate::worker::SerializedBatchDigestMessage;
-use crate::global_order_maker::GlobalOrderMakerMessage;
 use config::WorkerId;
 use crypto::Digest;
 use ed25519_dalek::Digest as _;

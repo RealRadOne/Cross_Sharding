@@ -8,7 +8,7 @@ use crypto::{Digest, PublicKey};
 use std::collections::HashMap;
 use store::Store;
 use tokio::sync::mpsc::Sender;
-use log::{debug, info};
+use log::info;
 
 
 /// The `Synchronizer` checks if we have all batches and parents referenced by a header. If we don't, it sends

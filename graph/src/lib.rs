@@ -1,13 +1,14 @@
-use log::{info};
+// use log::{info};
 use petgraph::graphmap::DiGraphMap;
-use petgraph::algo::{condensation, kosaraju_scc};
-use bytes::BufMut as _;
-use bytes::BytesMut;
-use bytes::Bytes;
-use crypto::Digest;
+use petgraph::algo::kosaraju_scc;
+// use petgraph::algo::condensation;
+// use bytes::BufMut as _;
+// use bytes::BytesMut;
+// use bytes::Bytes;
+// use crypto::Digest;
 use smallbank::SmallBankTransactionHandler;
 use std::collections::{HashMap, HashSet};
-use debugtimer::DebugTimer;
+// use debugtimer::DebugTimer;
 
 
 type Transaction = Vec<u8>;
@@ -95,7 +96,7 @@ impl LocalOrderGraph{
                         dag.add_edge(node, node_info[neighbor_idx], 1);
                     }
                 },
-                _ => panic!("Unexpected message"),
+                // _ => panic!("Unexpected message"),
             }
         }
         return dag;
@@ -106,6 +107,7 @@ impl LocalOrderGraph{
 pub struct GlobalDependencyGraph{
     dag: DiGraphMap<u16, u8>,
     fixed_transactions: HashSet<u16>,
+    missed_edges: HashMap<(u16, u16), u16>,
 }
 
 impl GlobalDependencyGraph{
@@ -142,15 +144,23 @@ impl GlobalDependencyGraph{
         }
 
         // (4) Find edges to add into the graph
+        // (5) Find missing edges in this graph
+        let mut missed_edges: HashMap<(u16, u16), u16> = HashMap::new();
         for (&(from, to), &count) in &edge_counts{
-            if (count as f32 >= fixed_tx_threshold || count as f32 >= pending_tx_threshold) && count > edge_counts[&(to, from)]{
+            if ((count as f32) >= fixed_tx_threshold || (count as f32) >= pending_tx_threshold) && count > edge_counts[&(to, from)]{
                 dag.add_edge(from, to, 1);
+            }
+            else if !((edge_counts[&(to, from)] as f32) >= fixed_tx_threshold || (edge_counts[&(to, from)] as f32) >= pending_tx_threshold){
+                // edge between 'from' and 'to' is missing
+                missed_edges.insert((from,to), count);
+                missed_edges.insert((to, from), edge_counts[&(to, from)]);
             }
         }
 
         GlobalDependencyGraph{
             dag: dag,
             fixed_transactions: fixed_transactions,
+            missed_edges: missed_edges,
         }
     }
 
@@ -160,6 +170,10 @@ impl GlobalDependencyGraph{
 
     pub fn get_fixed_transactions(&self) -> &HashSet<u16>{
         return &self.fixed_transactions;
+    }
+
+    pub fn get_missed_edges(&self) -> &HashMap<(u16, u16), u16>{
+        return &self.missed_edges;
     }
 }
 
@@ -206,6 +220,7 @@ impl PrunedGraph{
 #[derive(Clone)]
 pub struct GlobalOrderGraph{
     global_order_graph:  DiGraphMap<u16, u8>,
+    missed_edges: HashMap<(u16, u16), u16>,
 }
 
 impl GlobalOrderGraph{
@@ -213,9 +228,11 @@ impl GlobalOrderGraph{
         let global_dependency_graph: GlobalDependencyGraph = GlobalDependencyGraph::new(local_order_graphs, fixed_tx_threshold, pending_tx_threshold);
         let pruned_graph: PrunedGraph = PrunedGraph::new(global_dependency_graph.get_dag(), global_dependency_graph.get_fixed_transactions());
         let global_order_graph: DiGraphMap<u16, u8> = pruned_graph.get_dag();
+        let missed_edges: HashMap<(u16, u16), u16> = global_dependency_graph.get_missed_edges().clone();
 
         GlobalOrderGraph{
             global_order_graph: global_order_graph,
+            missed_edges: missed_edges,
         }
     }
 
@@ -237,6 +254,10 @@ impl GlobalOrderGraph{
         }
 
         return dag_vec;
+    }
+
+    pub fn get_missed_edges(&self) -> HashMap<(u16, u16), u16>{
+        return self.missed_edges.clone();
     }
 }
 

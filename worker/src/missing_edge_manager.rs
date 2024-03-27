@@ -1,11 +1,8 @@
 // Copyright(C) Heena Nagda.
-use std::collections::{HashMap, VecDeque};
-use tokio::sync::mpsc::{channel, Sender};
-use tokio::sync::oneshot;
 use serde::{Deserialize, Serialize};
 use store::Store;
 use config::Committee;
-use log::{error, warn};
+use log::error;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum EdgeManagerFormat {
@@ -60,7 +57,7 @@ impl MissingEdgeManager {
         return false;
     }
 
-    pub async fn add_updated_edge(&mut self, from: u16, to: u16) -> bool{
+    pub async fn add_updated_edge(&mut self, from: u16, to: u16, new_count: u16) -> bool{
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize updated edge while adding into the store");
 
@@ -69,7 +66,7 @@ impl MissingEdgeManager {
                 let mut count_arr: [u8; 8] = [Default::default(); 8];
                 count_arr[..8].copy_from_slice(&count_vec);
                 let mut count = u64::from_le_bytes(count_arr);
-                count += 1;
+                count += new_count as u64;
                 self.store.write(serialized, count.to_le_bytes().to_vec()).await;
                 return count >= self.committee.quorum_threshold() as u64;
             },
