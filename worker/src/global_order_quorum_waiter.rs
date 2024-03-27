@@ -7,11 +7,14 @@ use futures::stream::StreamExt as _;
 use network::CancelHandler;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::info;
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct GlobalOrderQuorumWaiterMessage {
     /// A serialized `WorkerMessage::GlobalOrder` message.
     pub global_order: SerializedGlobalOrderMessage,
+    /// Missed edge pairs in the currdnt global order graph
+    pub missed_edge_pairs: HashSet<(u16, u16)>,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
     pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
@@ -56,7 +59,7 @@ impl GlobalOrderQuorumWaiter {
 
     /// Main loop.
     async fn run(&mut self) {
-        while let Some(GlobalOrderQuorumWaiterMessage { global_order, handlers }) = self.rx_message.recv().await {
+        while let Some(GlobalOrderQuorumWaiterMessage { global_order, missed_edge_pairs, handlers }) = self.rx_message.recv().await {
             let mut wait_for_quorum: FuturesUnordered<_> = handlers
                 .into_iter()
                 .map(|(name, handler)| {

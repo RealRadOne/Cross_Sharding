@@ -17,6 +17,7 @@ use graph::{LocalOrderGraph, GlobalOrderGraph};
 use petgraph::prelude::DiGraphMap;
 use network::ReliableSender;
 use bytes::Bytes;
+use std::collections::HashSet;
 
 /// Indicates a serialized `WorkerMessage::Batch` message.
 pub type SerializedBatchMessage = Vec<u8>;
@@ -140,10 +141,15 @@ impl GlobalOrderMaker {
                 let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
                 let global_order_graph = global_order_graph_obj.get_dag_serialized();
                 let missed_edges = global_order_graph_obj.get_missed_edges();
+                let mut missed_pairs: HashSet<(u16, u16)> = HashSet::new();
                 
                 for ((from, to), count) in &missed_edges{
                     self.missed_edge_manager.add_missing_edge(*from, *to);
                     self.missed_edge_manager.add_updated_edge(*from, *to, *count);
+
+                    if !missed_pairs.contains(&(*to, *from)){
+                        missed_pairs.insert((*from, *to));
+                    }
                 }
                 
                 let message = WorkerMessage::GlobalOrder(global_order_graph);
@@ -181,6 +187,7 @@ impl GlobalOrderMaker {
                 self.tx_message
                 .send(GlobalOrderQuorumWaiterMessage {
                     global_order: serialized,
+                    missed_edge_pairs: missed_pairs,
                     handlers: names.into_iter().zip(handlers.into_iter()).collect(),
                 })
                 .await
