@@ -23,6 +23,7 @@ use std::collections::HashSet;
 pub type SerializedBatchMessage = Vec<u8>;
 pub type Transaction = Vec<u8>;
 pub type GlobalOrder = Vec<Transaction>;
+pub type MissedEdgePairs = HashSet<(u16, u16)>;
 
 #[derive(Debug)]
 pub struct GlobalOrderMakerMessage {
@@ -152,7 +153,7 @@ impl GlobalOrderMaker {
                     }
                 }
                 
-                let message = WorkerMessage::GlobalOrder(global_order_graph);
+                let message = WorkerMessage::GlobalOrderInfo(global_order_graph, missed_pairs);
                 let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
 
                 #[cfg(feature = "benchmark")]
@@ -186,8 +187,7 @@ impl GlobalOrderMaker {
                 info!("Send Global order to Quorum Waiter");
                 self.tx_message
                 .send(GlobalOrderQuorumWaiterMessage {
-                    global_order: serialized,
-                    missed_edge_pairs: missed_pairs,
+                    global_order_info: serialized,
                     handlers: names.into_iter().zip(handlers.into_iter()).collect(),
                 })
                 .await

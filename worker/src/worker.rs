@@ -6,7 +6,7 @@ use crate::processor::{Processor, SerializedBatchMessage};
 use crate::global_order_processor::{GlobalOrderProcessor, SerializedGlobalOrderMessage};
 use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
-use crate::global_order_maker::{GlobalOrder, GlobalOrderMaker, GlobalOrderMakerMessage};
+use crate::global_order_maker::{GlobalOrder, MissedEdgePairs, GlobalOrderMaker, GlobalOrderMakerMessage};
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiter;
 use crate::missing_edge_manager::MissingEdgeManager;
 use async_trait::async_trait;
@@ -42,7 +42,7 @@ pub type SerializedBatchDigestMessage = Vec<u8>;
 pub enum WorkerMessage {
     Batch(Batch),
     BatchRequest(Vec<Digest>, /* origin */ PublicKey),
-    GlobalOrder(GlobalOrder),
+    GlobalOrderInfo(GlobalOrder, MissedEdgePairs),
 }
 
 pub struct Worker {
@@ -366,7 +366,7 @@ impl MessageHandler for WorkerReceiverHandler {
                 .send((missing, requestor))
                 .await
                 .expect("Failed to send batch request"),
-            Ok(WorkerMessage::GlobalOrder(..)) => self
+            Ok(WorkerMessage::GlobalOrderInfo(..)) => self
                 .tx_global_order_processor
                 .send(serialized.to_vec())
                 .await

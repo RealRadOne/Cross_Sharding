@@ -11,10 +11,8 @@ use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct GlobalOrderQuorumWaiterMessage {
-    /// A serialized `WorkerMessage::GlobalOrder` message.
-    pub global_order: SerializedGlobalOrderMessage,
-    /// Missed edge pairs in the currdnt global order graph
-    pub missed_edge_pairs: HashSet<(u16, u16)>,
+    /// A serialized `WorkerMessage::GlobalOrderInfo` message.
+    pub global_order_info: SerializedGlobalOrderMessage,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
     pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
@@ -59,7 +57,7 @@ impl GlobalOrderQuorumWaiter {
 
     /// Main loop.
     async fn run(&mut self) {
-        while let Some(GlobalOrderQuorumWaiterMessage { global_order, missed_edge_pairs, handlers }) = self.rx_message.recv().await {
+        while let Some(GlobalOrderQuorumWaiterMessage { global_order_info, handlers }) = self.rx_message.recv().await {
             let mut wait_for_quorum: FuturesUnordered<_> = handlers
                 .into_iter()
                 .map(|(name, handler)| {
@@ -78,7 +76,7 @@ impl GlobalOrderQuorumWaiter {
                 if total_stake >= self.committee.quorum_threshold() {
                     info!("Received 2f acks, Sending Global order to the global order processor");
                     self.tx_order
-                        .send(global_order)
+                        .send(global_order_info)
                         .await
                         .expect("Failed to deliver global order to the global order processor");
                     break;

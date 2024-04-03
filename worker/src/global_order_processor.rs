@@ -10,7 +10,7 @@ use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::info;
 
-/// Indicates a serialized `WorkerMessage::GlobalOrder` message.
+/// Indicates a serialized `WorkerMessage::GlobalOrderInfo` message.
 pub type SerializedGlobalOrderMessage = Vec<u8>;
 
 #[derive(Debug)]
@@ -31,6 +31,7 @@ impl GlobalOrderProcessor {
         own_digest: bool,
     ) {
         tokio::spawn(async move {
+            // TODO: It is GlobalOrderInfo(GlobalOrder, MissedEdgePairs) NOT just GlobalOrder
             while let Some(global_order) = rx_global_order.recv().await {
                 info!("Received Global order to process further. own_digest = {:?}", own_digest);
                 // Hash the batch.

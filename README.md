@@ -63,3 +63,4 @@ This software is licensed as [Apache 2.0](LICENSE).
 #1 Check if worker 1 is sending to exactly to the worker 1 of other parties: checked
 #2 Create Tx ids based on global Tx ids
 #3 Check if client sends sharded tx to right workers (based on worker id)
+#4 Store transaction as well as missing edges in the store.
