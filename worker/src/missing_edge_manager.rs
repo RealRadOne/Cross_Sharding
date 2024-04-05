@@ -47,10 +47,10 @@ impl MissingEdgeManager {
 
     pub async fn is_missing_edge(&mut self, from: u16, to: u16) -> bool {
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
-        let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store");
+        let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missing_edge");
         
         match self.store.read(serialized).await {
-            Ok(Some(_count_arr)) => return true,
+            Ok(Some(_count_vec)) => return true,
             Ok(None) => return false,
             Err(e) => error!("Error while checking if there is a missing edge = {}", e),
         }
@@ -76,9 +76,22 @@ impl MissingEdgeManager {
         return false;
     }
 
-    // pub async fn is_missing_edge_updated(self, from: u16, to: u16) -> bool {
-    //     return true;
-    // }
+    pub async fn is_missing_edge_updated(&mut self, from: u16, to: u16) -> bool {
+        let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
+        let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missed_edge_updated");
+        
+        match self.store.read(serialized).await {
+            Ok(Some(count_vec)) => {
+                let mut count_arr: [u8; 8] = [Default::default(); 8];
+                count_arr[..8].copy_from_slice(&count_vec);
+                let count = u64::from_le_bytes(count_arr);
+                return count >= (self.committee.quorum_threshold() as u64);
+            },
+            Ok(None) => error!("missed pair not found in the store while checking is_missing_edge_updated"),
+            Err(e) => error!("Error while checking if there is a missing_edge_updated = {}", e),
+        }
+        return false;
+    }
 
     async fn u64_to_vec8(self, num: u64) -> Vec<u8>{
         return num.to_le_bytes().to_vec().clone();
