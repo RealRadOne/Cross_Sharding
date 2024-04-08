@@ -109,7 +109,7 @@ impl ExecutionQueue {
                             //     self.sb_handler.execute_transaction(Bytes::from(tx));
                             // }              
                         },
-                        _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
+                        _ => panic!("PrimaryWorkerMessage::Execute : Unexpected global order graph at execution"),
                     }
                 }
                 Ok(None) => (),

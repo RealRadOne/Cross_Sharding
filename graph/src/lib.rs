@@ -256,6 +256,23 @@ impl GlobalOrderGraph{
         return dag_vec;
     }
 
+    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<u16, u8>{
+        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+        for serialized_node_info in serialized_dag{
+            match bincode::deserialize::<Vec<u16>>(&serialized_node_info).unwrap() {
+                node_info => {
+                    let node: u16 = node_info[0];
+                    dag.add_node(node);
+                    for neighbor_idx in 1..node_info.len(){
+                        dag.add_edge(node, node_info[neighbor_idx], 1);
+                    }
+                },
+                // _ => panic!("Unexpected message"),
+            }
+        }
+        return dag;
+    }
+
     pub fn get_missed_edges(&self) -> HashMap<(u16, u16), u16>{
         return self.missed_edges.clone();
     }
