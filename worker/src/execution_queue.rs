@@ -1,12 +1,15 @@
 
 use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
+use petgraph::graphmap::DiGraphMap;
 use std::collections::LinkedList;
 use std::collections::HashSet;
 use crypto::Digest;
 use store::Store;
 use smallbank::SmallBankTransactionHandler;
+use graph::GlobalOrderGraph;
 use log::{error, info};
+
 
 
 #[derive(Clone)]
@@ -105,6 +108,8 @@ impl ExecutionQueue {
                 Ok(Some(global_order_info)) => {
                     match bincode::deserialize(&global_order_info).unwrap() {
                         WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, missed) => {
+                            // deserialize received serialized glbal order graph
+                            let dag: DiGraphMap<u16, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
                             // for tx in batch{
                             //     self.sb_handler.execute_transaction(Bytes::from(tx));
                             // }              
