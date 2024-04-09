@@ -2,6 +2,7 @@
 use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use petgraph::graphmap::DiGraphMap;
+use threadpool::ThreadPool;
 use std::collections::LinkedList;
 use std::collections::HashSet;
 use crypto::Digest;
@@ -9,7 +10,6 @@ use store::Store;
 use smallbank::SmallBankTransactionHandler;
 use graph::GlobalOrderGraph;
 use log::{error, info};
-
 
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct ExecutionQueue {
 }
 
 impl ExecutionQueue {
-    pub fn new(store: Store, sb_handler: SmallBankTransactionHandler, missed_edge_manager: MissingEdgeManager,) -> ExecutionQueue {
+    pub fn new(store: Store, sb_handler: SmallBankTransactionHandler, missed_edge_manager: MissingEdgeManager) -> ExecutionQueue {
         ExecutionQueue{
             queue: LinkedList::new(),
             store: store,
@@ -121,5 +121,33 @@ impl ExecutionQueue {
                 Err(e) => error!("{}", e),
             } 
         }
+    }
+}
+
+
+
+#[derive(Clone)]
+pub struct ParallelExecution {
+    pool: ThreadPool,
+    global_order_graph: DiGraphMap<u16, u8>,
+    store: Store,
+    sb_handler: SmallBankTransactionHandler,
+}
+
+impl ParallelExecution {
+    pub fn new(global_order_graph: DiGraphMap<u16, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
+        ParallelExecution{
+            pool: ThreadPool::new(4),
+            global_order_graph: global_order_graph,
+            store: store,
+            sb_handler: sb_handler,
+        }
+    }
+
+    pub async fn execute(&mut self){
+        // find the roots of the graph
+
+        // execute using threadpool
+
     }
 }
