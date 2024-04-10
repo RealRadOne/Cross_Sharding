@@ -3,14 +3,14 @@ use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use petgraph::graphmap::DiGraphMap;
 use threadpool::ThreadPool;
-use std::collections::LinkedList;
-use std::collections::HashSet;
+use std::collections::{LinkedList, HashSet, HashMap};
 use crypto::Digest;
 use store::Store;
 use smallbank::SmallBankTransactionHandler;
 use graph::GlobalOrderGraph;
 use log::{error, info};
 
+const MAX_THREADS: usize = 10;
 
 #[derive(Clone)]
 struct QueueElement{
@@ -91,6 +91,7 @@ impl ExecutionQueue {
         for element in self.queue.iter_mut() {
             // check if there are no missed edges for this digest
             if element.missed_pairs.is_empty(){
+                // TODO: Update the graph based on the "updated_edges"
                 n_elements_to_execute += 1;
             }
             else{
@@ -128,7 +129,7 @@ impl ExecutionQueue {
 
 #[derive(Clone)]
 pub struct ParallelExecution {
-    pool: ThreadPool,
+    thread_pool: ThreadPool,
     global_order_graph: DiGraphMap<u16, u8>,
     store: Store,
     sb_handler: SmallBankTransactionHandler,
@@ -137,7 +138,7 @@ pub struct ParallelExecution {
 impl ParallelExecution {
     pub fn new(global_order_graph: DiGraphMap<u16, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
         ParallelExecution{
-            pool: ThreadPool::new(4),
+            thread_pool: ThreadPool::new(MAX_THREADS),
             global_order_graph: global_order_graph,
             store: store,
             sb_handler: sb_handler,
@@ -145,8 +146,29 @@ impl ParallelExecution {
     }
 
     pub async fn execute(&mut self){
-        // find the roots of the graph
+        // find incoming edge count for each node in the graph
+        let mut incoming_count: HashMap<u16, usize> = HashMap::new();
+        for node in self.global_order_graph.nodes(){
+            let mut count: usize = 0;
+            for neighbor in self.global_order_graph.neighbors(node){
+                incoming_count.entry(neighbor).or_insert(0);
+                incoming_count.insert(neighbor, incoming_count[&neighbor]+1);
+            }                   
+        }
 
+        // find root nodes of the graph
+        let mut roots: Vec<u16> = Vec::new();
+        for (node, count) in &incoming_count{
+            if *count==0{
+                roots.push(*node);
+            }
+        }
+
+        // create a shared queue
+        // https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
+        // initialize the shared queue with root nodes
+
+        // Traverse the graph and execute the nodes
         // execute using threadpool
 
     }

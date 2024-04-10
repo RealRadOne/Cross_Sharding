@@ -64,3 +64,4 @@ This software is licensed as [Apache 2.0](LICENSE).
 #2 Create Tx ids based on global Tx ids
 #3 Check if client sends sharded tx to right workers (based on worker id)
 #4 Store transaction as well as missing edges in the store.
+#5 input thresholds and execution threads
