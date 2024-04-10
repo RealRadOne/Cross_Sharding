@@ -3,7 +3,10 @@ use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use petgraph::graphmap::DiGraphMap;
 use threadpool::ThreadPool;
-use std::collections::{LinkedList, HashSet, HashMap};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::thread::JoinHandle;
+use std::collections::{LinkedList, HashSet, HashMap, VecDeque};
 use crypto::Digest;
 use store::Store;
 use smallbank::SmallBankTransactionHandler;
@@ -149,7 +152,6 @@ impl ParallelExecution {
         // find incoming edge count for each node in the graph
         let mut incoming_count: HashMap<u16, usize> = HashMap::new();
         for node in self.global_order_graph.nodes(){
-            let mut count: usize = 0;
             for neighbor in self.global_order_graph.neighbors(node){
                 incoming_count.entry(neighbor).or_insert(0);
                 incoming_count.insert(neighbor, incoming_count[&neighbor]+1);
@@ -164,12 +166,32 @@ impl ParallelExecution {
             }
         }
 
-        // create a shared queue
-        // https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
+        // create a shared queue: https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
+        let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
+        
         // initialize the shared queue with root nodes
+        for root in roots{
+            shared_queue.lock().unwrap().push_back(root);
+        }
 
         // Traverse the graph and execute the nodes
         // execute using threadpool
+        let mut thread_join_handle: Vec<JoinHandle<_>> = Vec::new();
+        for _ in 0..MAX_THREADS {
+            let queue = shared_queue.clone();
+            thread_join_handle.push(thread::spawn(move || {
+                loop{
+                    let mut locked_queue = queue.lock().unwrap();
+                    if locked_queue.is_empty() { break; }
+                    let node = locked_queue.pop_front();
+                }
+            }));
+        }
+
+        // joining all the threads
+        for handle in thread_join_handle{
+            let _ = handle.join();
+        }
 
     }
 }
