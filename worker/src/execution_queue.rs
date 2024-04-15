@@ -2,11 +2,12 @@
 use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use petgraph::graphmap::DiGraphMap;
-use threadpool::ThreadPool;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
+// use std::thread;
+// use std::thread::JoinHandle;
+use tokio::task::JoinHandle;
 use std::collections::{LinkedList, HashSet, HashMap, VecDeque};
+use bytes::Bytes;
 use crypto::Digest;
 use store::Store;
 use smallbank::SmallBankTransactionHandler;
@@ -132,7 +133,6 @@ impl ExecutionQueue {
 
 #[derive(Clone)]
 pub struct ParallelExecution {
-    thread_pool: ThreadPool,
     global_order_graph: DiGraphMap<u16, u8>,
     store: Store,
     sb_handler: SmallBankTransactionHandler,
@@ -141,9 +141,8 @@ pub struct ParallelExecution {
 impl ParallelExecution {
     pub fn new(global_order_graph: DiGraphMap<u16, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
         ParallelExecution{
-            thread_pool: ThreadPool::new(MAX_THREADS),
             global_order_graph: global_order_graph,
-            store: store,
+            store: store.clone(),
             sb_handler: sb_handler,
         }
     }
@@ -174,24 +173,103 @@ impl ParallelExecution {
             shared_queue.lock().unwrap().push_back(root);
         }
 
-        // Traverse the graph and execute the nodes
-        // execute using threadpool
-        let mut thread_join_handle: Vec<JoinHandle<_>> = Vec::new();
+        // Traverse the graph and execute the nodes using thread pool
+        // Use tokio::spawn instead of thread::spawn ???
+        // https://users.rust-lang.org/t/how-to-use-async-fn-in-thread-spawn/46413/2
+        // tokio::spawn(async move { while rx_primary.recv().await.is_some() {} });
+
+        let mut blocking_tasks: Vec<JoinHandle<()>> = Vec::new();
         for _ in 0..MAX_THREADS {
-            let queue = shared_queue.clone();
-            thread_join_handle.push(thread::spawn(move || {
-                loop{
-                    let mut locked_queue = queue.lock().unwrap();
-                    if locked_queue.is_empty() { break; }
-                    let node = locked_queue.pop_front();
-                }
-            }));
+            let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.sb_handler.clone(), shared_queue.clone());
+            blocking_tasks.push(task);
         }
 
         // joining all the threads
-        for handle in thread_join_handle{
-            let _ = handle.join();
+        for task in blocking_tasks{
+            let _ = task.await;
         }
 
+        // let mut thread_join_handle: Vec<JoinHandle<_>> = Vec::new();
+        // for _ in 0..MAX_THREADS {
+        //     let queue = shared_queue.clone();
+        //     thread_join_handle.push(thread::spawn(move || {
+        //         loop{
+        //             let mut locked_queue = queue.lock().unwrap();
+        //             if locked_queue.is_empty() { break; }
+        //             let tx_id = locked_queue.pop_front();
+
+        //             // Get the actual transaction against tx_id from the Store
+        //             match self.store.read(tx_id.to_vec()).await {
+        //                 Ok(Some(tx)) => {
+        //                     self.sb_handler.execute_transaction(Bytes::from(tx));
+        //                 }
+        //                 Ok(None) => (),
+        //                 Err(e) => error!("{}", e),
+        //             } 
+        //         }
+        //     }));
+        // }
+
+        // // joining all the threads
+        // for handle in thread_join_handle{
+        //     let _ = handle.join();
+        // }
+
+    }
+}
+
+
+#[derive(Clone)]
+pub struct ParallelExecutionThread {
+    global_order_graph: DiGraphMap<u16, u8>,
+    store: Store,
+    sb_handler: SmallBankTransactionHandler,
+    shared_queue: Arc<Mutex<VecDeque<u16>>>,
+}
+
+impl ParallelExecutionThread {
+
+    pub fn spawn(
+        global_order_graph: DiGraphMap<u16, u8>,
+        store: Store,
+        sb_handler: SmallBankTransactionHandler,
+        shared_queue: Arc<Mutex<VecDeque<u16>>>,
+    ) -> JoinHandle<()> {
+        let task = tokio::spawn(async move {
+            Self {
+                global_order_graph: global_order_graph,
+                store: store.clone(),
+                sb_handler: sb_handler,
+                shared_queue: shared_queue.clone(),
+            }
+            .run()
+            .await;
+        });
+
+        return task;
+    }
+
+    async fn run(&mut self) {
+        let i: usize = 0;
+        loop {
+            let mut tx_id: Vec<u8> = vec![];
+
+            {
+                let mut locked_queue = self.shared_queue.lock().unwrap();
+                if locked_queue.is_empty() { 
+                    break; 
+                }
+                let tx_id = locked_queue.pop_front().unwrap().to_le_bytes().to_vec();
+            }
+
+            // Get the actual transaction against tx_id from the Store
+            match self.store.read(tx_id).await {
+                Ok(Some(tx)) => {
+                    self.sb_handler.execute_transaction(Bytes::from(tx));
+                }
+                Ok(None) => (),
+                Err(e) => error!("{}", e),
+            } 
+        }
     }
 }
