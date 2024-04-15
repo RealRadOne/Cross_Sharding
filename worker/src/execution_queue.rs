@@ -174,10 +174,6 @@ impl ParallelExecution {
         }
 
         // Traverse the graph and execute the nodes using thread pool
-        // Use tokio::spawn instead of thread::spawn ???
-        // https://users.rust-lang.org/t/how-to-use-async-fn-in-thread-spawn/46413/2
-        // tokio::spawn(async move { while rx_primary.recv().await.is_some() {} });
-
         let mut blocking_tasks: Vec<JoinHandle<()>> = Vec::new();
         for _ in 0..MAX_THREADS {
             let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.sb_handler.clone(), shared_queue.clone());
@@ -188,33 +184,6 @@ impl ParallelExecution {
         for task in blocking_tasks{
             let _ = task.await;
         }
-
-        // let mut thread_join_handle: Vec<JoinHandle<_>> = Vec::new();
-        // for _ in 0..MAX_THREADS {
-        //     let queue = shared_queue.clone();
-        //     thread_join_handle.push(thread::spawn(move || {
-        //         loop{
-        //             let mut locked_queue = queue.lock().unwrap();
-        //             if locked_queue.is_empty() { break; }
-        //             let tx_id = locked_queue.pop_front();
-
-        //             // Get the actual transaction against tx_id from the Store
-        //             match self.store.read(tx_id.to_vec()).await {
-        //                 Ok(Some(tx)) => {
-        //                     self.sb_handler.execute_transaction(Bytes::from(tx));
-        //                 }
-        //                 Ok(None) => (),
-        //                 Err(e) => error!("{}", e),
-        //             } 
-        //         }
-        //     }));
-        // }
-
-        // // joining all the threads
-        // for handle in thread_join_handle{
-        //     let _ = handle.join();
-        // }
-
     }
 }
 
