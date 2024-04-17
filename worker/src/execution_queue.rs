@@ -3,8 +3,6 @@ use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
 use petgraph::graphmap::DiGraphMap;
 use std::sync::{Arc, Mutex};
-// use std::thread;
-// use std::thread::JoinHandle;
 use tokio::task::JoinHandle;
 use std::collections::{LinkedList, HashSet, HashMap, VecDeque};
 use bytes::Bytes;
@@ -115,9 +113,8 @@ impl ExecutionQueue {
                         WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, missed) => {
                             // deserialize received serialized glbal order graph
                             let dag: DiGraphMap<u16, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
-                            // for tx in batch{
-                            //     self.sb_handler.execute_transaction(Bytes::from(tx));
-                            // }              
+                            let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.sb_handler.clone());
+                            parallel_execution.execute();    
                         },
                         _ => panic!("PrimaryWorkerMessage::Execute : Unexpected global order graph at execution"),
                     }
@@ -141,9 +138,9 @@ pub struct ParallelExecution {
 impl ParallelExecution {
     pub fn new(global_order_graph: DiGraphMap<u16, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
         ParallelExecution{
-            global_order_graph: global_order_graph,
-            store: store.clone(),
-            sb_handler: sb_handler,
+            global_order_graph,
+            store,
+            sb_handler,
         }
     }
 
@@ -206,10 +203,10 @@ impl ParallelExecutionThread {
     ) -> JoinHandle<()> {
         let task = tokio::spawn(async move {
             Self {
-                global_order_graph: global_order_graph,
-                store: store.clone(),
-                sb_handler: sb_handler,
-                shared_queue: shared_queue.clone(),
+                global_order_graph,
+                store,
+                sb_handler,
+                shared_queue,
             }
             .run()
             .await;

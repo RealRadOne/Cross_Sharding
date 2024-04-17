@@ -9,6 +9,7 @@ use crate::synchronizer::Synchronizer;
 use crate::global_order_maker::{GlobalOrder, MissedEdgePairs, GlobalOrderMaker, GlobalOrderMakerMessage};
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiter;
 use crate::missing_edge_manager::MissingEdgeManager;
+use crate::execution_queue::ExecutionQueue;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -58,10 +59,12 @@ pub struct Worker {
     parameters: Parameters,
     /// The persistent storage.
     store: Store,
-    // small-bank handler to execute transacrtions
+    /// small-bank handler to execute transacrtions
     sb_handler: SmallBankTransactionHandler,
-    // Object of missing edge manager
+    /// Object of missing edge manager
     missed_edge_manager: MissingEdgeManager,
+    /// Keeping track of the elements in the Execution Queue (on worker)
+    exe_queue: ExecutionQueue,
 }
 
 impl Worker {
@@ -84,8 +87,9 @@ impl Worker {
             committee: committee.clone(),
             parameters,
             store: store.clone(),
-            sb_handler,
+            sb_handler: sb_handler.clone(),
             missed_edge_manager: missed_edge_manager.clone(),
+            exe_queue: ExecutionQueue::new(store.clone(), sb_handler.clone(), missed_edge_manager.clone()),
         };
 
         // Spawn all worker tasks.
@@ -189,6 +193,7 @@ impl Worker {
             self.parameters.gc_depth,
             self.parameters.sync_retry_delay,
             self.parameters.sync_retry_nodes,
+            self.exe_queue.clone(),
             /* rx_message */ rx_synchronizer,
             /* tx_batch_round */ tx_batch_round,
             /* tx_global_order_round */ tx_global_order_round,

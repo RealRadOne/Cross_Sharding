@@ -1,5 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::worker::{Round, WorkerMessage};
+use crate::execution_queue::ExecutionQueue;
 use bytes::Bytes;
 use config::{Committee, WorkerId};
 use crypto::{Digest, PublicKey};
@@ -55,6 +56,8 @@ pub struct Synchronizer {
     /// processing will resume when we get the missing batches in the store or we no longer need them.
     /// It also keeps the round number and a timestamp (`u128`) of each request we sent.
     pending: HashMap<Digest, (Round, Sender<()>, u128)>,
+    /// Keeping track of the elements in the Execution Queue (on worker)
+    exe_queue: ExecutionQueue,
 }
 
 impl Synchronizer {
@@ -68,6 +71,7 @@ impl Synchronizer {
         gc_depth: Round,
         sync_retry_delay: u64,
         sync_retry_nodes: usize,
+        exe_queue: ExecutionQueue,
         rx_message: Receiver<PrimaryWorkerMessage>,
         tx_batch_round: Sender<Round>,
         tx_global_order_round: Sender<Round>,
@@ -88,6 +92,7 @@ impl Synchronizer {
                 network: SimpleSender::new(),
                 round: Round::default(),
                 pending: HashMap::new(),
+                exe_queue,
             }
             .run()
             .await;
@@ -172,27 +177,9 @@ impl Synchronizer {
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
                     PrimaryWorkerMessage::Execute(certificate) => {
-                        // TODO
-                        // for digest in certificate.header.payload.keys() {
-                        //     // NOTE: This log entry is used to compute performance.
-                        //     // info!("Maybe potential execution point, right before garbage collection {} -> {:?}", certificate.header, digest);
-
-                        //     match self.store.read(digest.to_vec()).await {
-                        //         Ok(Some(batch)) => {
-                        //             match bincode::deserialize(&batch).unwrap() {
-                        //                 WorkerMessage::Batch(batch) => {
-                        //                     // info!("Maybe potential execution point," );
-                        //                     for tx in batch{
-                        //                         self.sb_handler.execute_transaction(Bytes::from(tx));
-                        //                     }
-                        //                 },
-                        //                 _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
-                        //             }
-                        //         }
-                        //         Ok(None) => (),
-                        //         Err(e) => error!("{}", e),
-                        //     }                            
-                        // }
+                        for digest in certificate.header.payload.keys() {
+                            self.exe_queue.execute(*digest);
+                        }
                     },
                     PrimaryWorkerMessage::Cleanup(round) => {
                         // Keep track of the primary's round number.
