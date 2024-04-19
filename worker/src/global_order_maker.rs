@@ -23,7 +23,8 @@ use std::collections::HashSet;
 pub type SerializedBatchMessage = Vec<u8>;
 pub type Transaction = Vec<u8>;
 pub type GlobalOrder = Vec<Transaction>;
-pub type MissedEdgePairs = HashSet<(u16, u16)>;
+type Node = u64;
+pub type MissedEdgePairs = HashSet<(Node, Node)>;
 
 #[derive(Debug)]
 pub struct GlobalOrderMakerMessage {
@@ -46,7 +47,7 @@ pub struct GlobalOrderMaker{
     /// Current round.
     current_round: Round,
     /// Local orders
-    local_order_dags: Vec<DiGraphMap<u16, u8>>,
+    local_order_dags: Vec<DiGraphMap<Node, u8>>,
     /// Input channel to receive updated current round.
     rx_round: Receiver<Round>,
     /// Input channel to receive batches.
@@ -142,7 +143,7 @@ impl GlobalOrderMaker {
                 let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
                 let global_order_graph = global_order_graph_obj.get_dag_serialized();
                 let missed_edges = global_order_graph_obj.get_missed_edges();
-                let mut missed_pairs: HashSet<(u16, u16)> = HashSet::new();
+                let mut missed_pairs: HashSet<(Node, Node)> = HashSet::new();
                 
                 for ((from, to), count) in &missed_edges{
                     self.missed_edge_manager.add_missing_edge(*from, *to);
@@ -197,7 +198,7 @@ impl GlobalOrderMaker {
     }
 
     /// Update the edges those were missed in previous global order, and now found in new set of transactions
-    async fn update_missed_edges(&mut self, dag: DiGraphMap<u16, u8>){
+    async fn update_missed_edges(&mut self, dag: DiGraphMap<Node, u8>){
         for (from, to, weight) in dag.all_edges(){
             if self.missed_edge_manager.is_missing_edge(from, to).await {
                 self.missed_edge_manager.add_updated_edge(from, to, 1).await;

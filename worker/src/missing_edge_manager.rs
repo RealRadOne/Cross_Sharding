@@ -4,9 +4,11 @@ use store::Store;
 use config::Committee;
 use log::error;
 
+type Node = u64;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum EdgeManagerFormat {
-    MissingEdgeFormat(Vec<u16>),
+    MissingEdgeFormat(Vec<Node>),
 }
 
 #[derive(Clone)]
@@ -24,7 +26,7 @@ impl MissingEdgeManager {
     }
     // self.round.to_le_bytes()
     // let batch_round = u64::from_le_bytes(batch_round_arr);
-    pub async fn add_missing_edge(&mut self, v1: u16, v2: u16) {
+    pub async fn add_missing_edge(&mut self, v1: Node, v2: Node) {
 
         let message_fwd = EdgeManagerFormat::MissingEdgeFormat(vec![v1, v2]);
         let message_rev = EdgeManagerFormat::MissingEdgeFormat(vec![v2, v1]);
@@ -45,7 +47,7 @@ impl MissingEdgeManager {
         }
     }
 
-    pub async fn is_missing_edge(&mut self, from: u16, to: u16) -> bool {
+    pub async fn is_missing_edge(&mut self, from: Node, to: Node) -> bool {
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missing_edge");
         
@@ -57,7 +59,7 @@ impl MissingEdgeManager {
         return false;
     }
 
-    pub async fn add_updated_edge(&mut self, from: u16, to: u16, new_count: u16) -> bool{
+    pub async fn add_updated_edge(&mut self, from: Node, to: Node, new_count: u16) -> bool{
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize updated edge while adding into the store");
 
@@ -76,7 +78,7 @@ impl MissingEdgeManager {
         return false;
     }
 
-    pub async fn is_missing_edge_updated(&mut self, from: u16, to: u16) -> bool {
+    pub async fn is_missing_edge_updated(&mut self, from: Node, to: Node) -> bool {
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missed_edge_updated");
         

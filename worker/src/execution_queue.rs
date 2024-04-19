@@ -12,13 +12,15 @@ use smallbank::SmallBankTransactionHandler;
 use graph::GlobalOrderGraph;
 use log::{error, info};
 
+type Node = u64;
+
 const MAX_THREADS: usize = 10;
 
 #[derive(Clone)]
 struct QueueElement{
     global_order_digest: Digest,
-    missed_pairs: HashSet<(u16, u16)>,
-    updated_edges: Vec<(u16, u16)>,
+    missed_pairs: HashSet<(Node, Node)>,
+    updated_edges: Vec<(Node, Node)>,
 }
 
 #[derive(Clone)]
@@ -65,8 +67,8 @@ impl ExecutionQueue {
                 continue;
             }
 
-            let mut updated_pairs: Vec<(u16, u16)> = Vec::new();
-            let mut updated_edges: Vec<(u16, u16)> = Vec::new();
+            let mut updated_pairs: Vec<(Node, Node)> = Vec::new();
+            let mut updated_edges: Vec<(Node, Node)> = Vec::new();
             for missed_pair in &element.missed_pairs{
                 if self.missed_edge_manager.is_missing_edge_updated(missed_pair.0, missed_pair.1).await{
                     updated_pairs.push((missed_pair.0, missed_pair.1));
@@ -112,7 +114,7 @@ impl ExecutionQueue {
                     match bincode::deserialize(&global_order_info).unwrap() {
                         WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, missed) => {
                             // deserialize received serialized glbal order graph
-                            let dag: DiGraphMap<u16, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
+                            let dag: DiGraphMap<Node, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
                             let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.sb_handler.clone());
                             parallel_execution.execute();    
                         },
@@ -130,13 +132,13 @@ impl ExecutionQueue {
 
 #[derive(Clone)]
 pub struct ParallelExecution {
-    global_order_graph: DiGraphMap<u16, u8>,
+    global_order_graph: DiGraphMap<Node, u8>,
     store: Store,
     sb_handler: SmallBankTransactionHandler,
 }
 
 impl ParallelExecution {
-    pub fn new(global_order_graph: DiGraphMap<u16, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
+    pub fn new(global_order_graph: DiGraphMap<Node, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
         ParallelExecution{
             global_order_graph,
             store,
@@ -146,7 +148,7 @@ impl ParallelExecution {
 
     pub async fn execute(&mut self){
         // find incoming edge count for each node in the graph
-        let mut incoming_count: HashMap<u16, usize> = HashMap::new();
+        let mut incoming_count: HashMap<Node, usize> = HashMap::new();
         for node in self.global_order_graph.nodes(){
             for neighbor in self.global_order_graph.neighbors(node){
                 incoming_count.entry(neighbor).or_insert(0);
@@ -155,7 +157,7 @@ impl ParallelExecution {
         }
 
         // find root nodes of the graph
-        let mut roots: Vec<u16> = Vec::new();
+        let mut roots: Vec<Node> = Vec::new();
         for (node, count) in &incoming_count{
             if *count==0{
                 roots.push(*node);
@@ -187,19 +189,19 @@ impl ParallelExecution {
 
 #[derive(Clone)]
 pub struct ParallelExecutionThread {
-    global_order_graph: DiGraphMap<u16, u8>,
+    global_order_graph: DiGraphMap<Node, u8>,
     store: Store,
     sb_handler: SmallBankTransactionHandler,
-    shared_queue: Arc<Mutex<VecDeque<u16>>>,
+    shared_queue: Arc<Mutex<VecDeque<Node>>>,
 }
 
 impl ParallelExecutionThread {
 
     pub fn spawn(
-        global_order_graph: DiGraphMap<u16, u8>,
+        global_order_graph: DiGraphMap<Node, u8>,
         store: Store,
         sb_handler: SmallBankTransactionHandler,
-        shared_queue: Arc<Mutex<VecDeque<u16>>>,
+        shared_queue: Arc<Mutex<VecDeque<Node>>>,
     ) -> JoinHandle<()> {
         let task = tokio::spawn(async move {
             Self {

@@ -176,11 +176,13 @@ impl Synchronizer {
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
+
                     PrimaryWorkerMessage::Execute(certificate) => {
                         for digest in certificate.header.payload.keys() {
                             self.exe_queue.execute(*digest);
                         }
                     },
+                    
                     PrimaryWorkerMessage::Cleanup(round) => {
                         // Keep track of the primary's round number.
                         self.round = round;

@@ -12,19 +12,20 @@ use std::collections::{HashMap, HashSet};
 
 
 type Transaction = Vec<u8>;
+type Node = u64;
 
 #[derive(Clone)]
 pub struct LocalOrderGraph{
     // local order
-    local_order: Vec<(u16, Transaction)>,
+    local_order: Vec<(Node, Transaction)>,
     sb_handler: SmallBankTransactionHandler,
-    dependencies: HashMap<u16, (char, Vec<u32>)>,
+    dependencies: HashMap<Node, (char, Vec<u32>)>,
 }
 
 impl LocalOrderGraph{
-    pub fn new(local_order: Vec<(u16, Transaction)>, sb_handler: SmallBankTransactionHandler) -> Self {
+    pub fn new(local_order: Vec<(Node, Transaction)>, sb_handler: SmallBankTransactionHandler) -> Self {
         // info!("local order is received = {:?}", local_order);
-        let mut dependencies: HashMap<u16, (char, Vec<u32>)> = HashMap::new();
+        let mut dependencies: HashMap<Node, (char, Vec<u32>)> = HashMap::new();
         for order in &local_order{
             let id  = (*order).0;
             let dep = sb_handler.get_transaction_dependency((*order).1.clone().into());
@@ -39,11 +40,11 @@ impl LocalOrderGraph{
         }
     }
 
-    pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
+    pub fn get_dag(&self) -> DiGraphMap<Node, u8>{
         // info!("local order DAG creation start");
 
         // (1) Create an empty graph G=(V,E)
-        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+        let mut dag: DiGraphMap<Node, u8> = DiGraphMap::new();
 
         // (2) Add all the nodes into the empty graph, as per local order received
         for order in &self.local_order{
@@ -52,7 +53,7 @@ impl LocalOrderGraph{
         }
 
         // // Better time complexity with some space
-        let mut seen_deps: HashMap<u32, Vec<(u16, char)>> = HashMap::new();
+        let mut seen_deps: HashMap<u32, Vec<(Node, char)>> = HashMap::new();
         for (curr_digest, tx) in &self.local_order{
             let curr_deps: &(char, Vec<u32>) = &self.dependencies[curr_digest];
             for curr_dep in &curr_deps.1{
@@ -70,11 +71,11 @@ impl LocalOrderGraph{
     }
 
     pub fn get_dag_serialized(&self) -> Vec<Vec<u8>>{
-        let dag: DiGraphMap<u16, u8> = self.get_dag();
+        let dag: DiGraphMap<Node, u8> = self.get_dag();
         let mut dag_vec: Vec<Vec<u8>> = Vec::new();
 
         for node in dag.nodes(){
-            let mut node_vec: Vec<u16> = Vec::new();
+            let mut node_vec: Vec<Node> = Vec::new();
             node_vec.push(node);
             for neighbor in dag.neighbors(node){
                 node_vec.push(neighbor);
@@ -85,12 +86,12 @@ impl LocalOrderGraph{
         return dag_vec;
     }
 
-    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<u16, u8>{
-        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<Node, u8>{
+        let mut dag: DiGraphMap<Node, u8> = DiGraphMap::new();
         for serialized_node_info in serialized_dag{
-            match bincode::deserialize::<Vec<u16>>(&serialized_node_info).unwrap() {
+            match bincode::deserialize::<Vec<Node>>(&serialized_node_info).unwrap() {
                 node_info => {
-                    let node: u16 = node_info[0];
+                    let node: Node = node_info[0];
                     dag.add_node(node);
                     for neighbor_idx in 1..node_info.len(){
                         dag.add_edge(node, node_info[neighbor_idx], 1);
@@ -105,21 +106,21 @@ impl LocalOrderGraph{
 
 #[derive(Clone)]
 pub struct GlobalDependencyGraph{
-    dag: DiGraphMap<u16, u8>,
-    fixed_transactions: HashSet<u16>,
-    missed_edges: HashMap<(u16, u16), u16>,
+    dag: DiGraphMap<Node, u8>,
+    fixed_transactions: HashSet<Node>,
+    missed_edges: HashMap<(Node, Node), u16>,
 }
 
 impl GlobalDependencyGraph{
-    pub fn new(local_order_graphs: Vec<DiGraphMap<u16, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
+    pub fn new(local_order_graphs: Vec<DiGraphMap<Node, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
         // info!("local order graphs are received = {:?}", local_order_graphs);
         
         // (1) Create an empty graph G=(V,E)
-        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+        let mut dag: DiGraphMap<Node, u8> = DiGraphMap::new();
 
         // (2) Find transactions' counts
-        let mut transaction_counts: HashMap<u16, u16> = HashMap::new();
-        let mut edge_counts: HashMap<(u16,u16), u16> = HashMap::new();
+        let mut transaction_counts: HashMap<Node, Node> = HashMap::new();
+        let mut edge_counts: HashMap<(Node,Node), u16> = HashMap::new();
         for local_order_graph in &local_order_graphs{
             for node in local_order_graph.nodes(){
                 let count = *transaction_counts.entry(node).or_insert(0);
@@ -133,7 +134,7 @@ impl GlobalDependencyGraph{
         }
 
         // (3) Find fixed and pending transactions and add them into the graph
-        let mut fixed_transactions: HashSet<u16> = HashSet::new();
+        let mut fixed_transactions: HashSet<Node> = HashSet::new();
         for (&tx, &count) in &transaction_counts{
             if count as f32 >= fixed_tx_threshold || count as f32 >= pending_tx_threshold{
                 dag.add_node(tx);
@@ -145,7 +146,7 @@ impl GlobalDependencyGraph{
 
         // (4) Find edges to add into the graph
         // (5) Find missing edges in this graph
-        let mut missed_edges: HashMap<(u16, u16), u16> = HashMap::new();
+        let mut missed_edges: HashMap<(Node, Node), u16> = HashMap::new();
         for (&(from, to), &count) in &edge_counts{
             if ((count as f32) >= fixed_tx_threshold || (count as f32) >= pending_tx_threshold) && count > edge_counts[&(to, from)]{
                 dag.add_edge(from, to, 1);
@@ -164,28 +165,28 @@ impl GlobalDependencyGraph{
         }
     }
 
-    pub fn get_dag(&self) -> &DiGraphMap<u16, u8>{
+    pub fn get_dag(&self) -> &DiGraphMap<Node, u8>{
         return &self.dag;
     }
 
-    pub fn get_fixed_transactions(&self) -> &HashSet<u16>{
+    pub fn get_fixed_transactions(&self) -> &HashSet<Node>{
         return &self.fixed_transactions;
     }
 
-    pub fn get_missed_edges(&self) -> &HashMap<(u16, u16), u16>{
+    pub fn get_missed_edges(&self) -> &HashMap<(Node, Node), u16>{
         return &self.missed_edges;
     }
 }
 
 #[derive(Clone)]
 pub struct PrunedGraph{
-    pruned_graph:  DiGraphMap<u16, u8>,
+    pruned_graph:  DiGraphMap<Node, u8>,
 }
 
 impl PrunedGraph{
-    pub fn new(global_dependency_graph: &DiGraphMap<u16, u8>, fixed_transactions: &HashSet<u16>) -> Self {
+    pub fn new(global_dependency_graph: &DiGraphMap<Node, u8>, fixed_transactions: &HashSet<Node>) -> Self {
         let strongely_connected_components = kosaraju_scc(global_dependency_graph);
-        let mut pruned_graph:  DiGraphMap<u16, u8> = global_dependency_graph.clone();
+        let mut pruned_graph:  DiGraphMap<Node, u8> = global_dependency_graph.clone();
         let mut idx: usize = strongely_connected_components.len()-1;
         
         while idx>=0{
@@ -212,23 +213,23 @@ impl PrunedGraph{
         }
     }
 
-    pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
+    pub fn get_dag(&self) -> DiGraphMap<Node, u8>{
         return self.pruned_graph.clone();
     }
 }
 
 #[derive(Clone)]
 pub struct GlobalOrderGraph{
-    global_order_graph:  DiGraphMap<u16, u8>,
-    missed_edges: HashMap<(u16, u16), u16>,
+    global_order_graph:  DiGraphMap<Node, u8>,
+    missed_edges: HashMap<(Node, Node), u16>,
 }
 
 impl GlobalOrderGraph{
-    pub fn new(local_order_graphs: Vec<DiGraphMap<u16, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
+    pub fn new(local_order_graphs: Vec<DiGraphMap<Node, u8>>, fixed_tx_threshold: f32, pending_tx_threshold: f32) -> Self {
         let global_dependency_graph: GlobalDependencyGraph = GlobalDependencyGraph::new(local_order_graphs, fixed_tx_threshold, pending_tx_threshold);
         let pruned_graph: PrunedGraph = PrunedGraph::new(global_dependency_graph.get_dag(), global_dependency_graph.get_fixed_transactions());
-        let global_order_graph: DiGraphMap<u16, u8> = pruned_graph.get_dag();
-        let missed_edges: HashMap<(u16, u16), u16> = global_dependency_graph.get_missed_edges().clone();
+        let global_order_graph: DiGraphMap<Node, u8> = pruned_graph.get_dag();
+        let missed_edges: HashMap<(Node, Node), u16> = global_dependency_graph.get_missed_edges().clone();
 
         GlobalOrderGraph{
             global_order_graph: global_order_graph,
@@ -236,16 +237,16 @@ impl GlobalOrderGraph{
         }
     }
 
-    pub fn get_dag(&self) -> DiGraphMap<u16, u8>{
+    pub fn get_dag(&self) -> DiGraphMap<Node, u8>{
         return self.global_order_graph.clone();
     }
 
     pub fn get_dag_serialized(&self) -> Vec<Vec<u8>>{
-        let dag: DiGraphMap<u16, u8> = self.get_dag();
+        let dag: DiGraphMap<Node, u8> = self.get_dag();
         let mut dag_vec: Vec<Vec<u8>> = Vec::new();
 
         for node in dag.nodes(){
-            let mut node_vec: Vec<u16> = Vec::new();
+            let mut node_vec: Vec<Node> = Vec::new();
             node_vec.push(node);
             for neighbor in dag.neighbors(node){
                 node_vec.push(neighbor);
@@ -256,12 +257,12 @@ impl GlobalOrderGraph{
         return dag_vec;
     }
 
-    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<u16, u8>{
-        let mut dag: DiGraphMap<u16, u8> = DiGraphMap::new();
+    pub fn get_dag_deserialized(serialized_dag: Vec<Vec<u8>>) -> DiGraphMap<Node, u8>{
+        let mut dag: DiGraphMap<Node, u8> = DiGraphMap::new();
         for serialized_node_info in serialized_dag{
-            match bincode::deserialize::<Vec<u16>>(&serialized_node_info).unwrap() {
+            match bincode::deserialize::<Vec<Node>>(&serialized_node_info).unwrap() {
                 node_info => {
-                    let node: u16 = node_info[0];
+                    let node: Node = node_info[0];
                     dag.add_node(node);
                     for neighbor_idx in 1..node_info.len(){
                         dag.add_edge(node, node_info[neighbor_idx], 1);
@@ -273,7 +274,7 @@ impl GlobalOrderGraph{
         return dag;
     }
 
-    pub fn get_missed_edges(&self) -> HashMap<(u16, u16), u16>{
+    pub fn get_missed_edges(&self) -> HashMap<(Node, Node), u16>{
         return self.missed_edges.clone();
     }
 }

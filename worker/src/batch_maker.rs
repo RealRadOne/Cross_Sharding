@@ -14,6 +14,7 @@ use network::ReliableSender;
 use std::convert::TryInto as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{Receiver, Sender};
+use core::convert::TryInto;
 // use tokio::macros::support::Poll;
 use tokio::time::{sleep, Duration, Instant};
 use graph::LocalOrderGraph;
@@ -26,6 +27,7 @@ pub mod batch_maker_tests;
 
 pub type Transaction = Vec<u8>;
 pub type Batch = Vec<Transaction>;
+type Node = u64;
 
 /// Assemble clients transactions into batches.
 pub struct BatchMaker {
@@ -139,12 +141,13 @@ impl BatchMaker {
         // TODO: Graphs
         info!("size of current batch = {:?}", self.current_batch.len());
         // TODO: Take non-sampled transactions
-        let mut local_order: Vec<(u16, Transaction)> = Vec::new();
+        let mut local_order: Vec<(Node, Transaction)> = Vec::new();
         self.current_batch_size = 0;
         let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
-        let mut idx: u16 = 0;
+        let mut idx: Node = 0;
         for tx in &drained_batch{
             local_order.push((idx, tx.clone()));
+            // local_order.push((self.sb_handler.get_transaction_uid(Bytes::from(<Vec<u8> as TryInto<Vec<u8>>>::try_into(tx.clone()).unwrap())), tx.clone()));
             idx += 1;
         };
 
