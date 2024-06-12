@@ -10,6 +10,7 @@ use crate::global_order_maker::{GlobalOrder, MissedEdgePairs, GlobalOrderMaker, 
 use crate::global_order_quorum_waiter::GlobalOrderQuorumWaiter;
 use crate::missing_edge_manager::MissingEdgeManager;
 use crate::execution_queue::ExecutionQueue;
+use crate::writer_store::WriterStore;
 use async_trait::async_trait;
 use bytes::Bytes;
 use config::{Committee, Parameters, WorkerId};
@@ -23,6 +24,10 @@ use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Sender};
 use smallbank::SmallBankTransactionHandler;
+use std::sync::{Arc};
+use futures::lock::Mutex;
+use futures::stream::SplitSink;
+use std::clone::Clone;
 
 #[cfg(test)]
 #[path = "tests/worker_tests.rs"]
@@ -65,6 +70,8 @@ pub struct Worker {
     missed_edge_manager: MissingEdgeManager,
     /// Keeping track of the elements in the Execution Queue (on worker)
     exe_queue: ExecutionQueue,
+    /// Writer handle (socket to send an ack to the corresponding client)
+    writer_store: Arc<Mutex<WriterStore>>,
 }
 
 impl Worker {
@@ -79,6 +86,7 @@ impl Worker {
     ) {
         // Define a worker instance.
         let missed_edge_manager = MissingEdgeManager::new(store.clone(), committee.clone());
+        let writer_store = Arc::new(Mutex::new(WriterStore::new()));
 
         let worker = Self {
             name,
@@ -89,7 +97,8 @@ impl Worker {
             store: store.clone(),
             sb_handler: sb_handler.clone(),
             missed_edge_manager: missed_edge_manager.clone(),
-            exe_queue: ExecutionQueue::new(store.clone(), sb_handler.clone(), missed_edge_manager.clone()),
+            exe_queue: ExecutionQueue::new(store.clone(), writer_store.clone(), sb_handler.clone(), missed_edge_manager.clone()),
+            writer_store,
         };
 
         // Spawn all worker tasks.
@@ -189,6 +198,7 @@ impl Worker {
             self.id,
             self.committee.clone(),
             self.store.clone(),
+            self.writer_store.clone(),
             self.sb_handler.clone(),
             self.parameters.gc_depth,
             self.parameters.sync_retry_delay,
@@ -227,6 +237,7 @@ impl Worker {
         // (in a reliable manner) the batches to all other workers that share the same `id` as us. Finally, it
         // gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
         BatchMaker::spawn(
+            self.writer_store.clone(),
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,
@@ -327,15 +338,15 @@ impl Worker {
 /// Defines how the network receiver handles incoming transactions.
 #[derive(Clone)]
 struct TxReceiverHandler {
-    tx_batch_maker: Sender<Transaction>,
+    tx_batch_maker: Sender<(Transaction, Arc<Mutex<Writer>>)>,
 }
 
 #[async_trait]
 impl MessageHandler for TxReceiverHandler {
-    async fn dispatch(&self, _writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn dispatch(&self, writer: Arc<Mutex<Writer>>, message: Bytes) -> Result<(), Box<dyn Error>> {
         // Send the transaction to the batch maker.
         self.tx_batch_maker
-            .send(message.to_vec())
+            .send((message.to_vec(), writer))
             .await
             .expect("Failed to send transaction");
 
@@ -355,9 +366,13 @@ struct WorkerReceiverHandler {
 
 #[async_trait]
 impl MessageHandler for WorkerReceiverHandler {
-    async fn dispatch(&self, writer: &mut Writer, serialized: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn dispatch(&self, writer: Arc<Mutex<Writer>>, serialized: Bytes) -> Result<(), Box<dyn Error>> {
         // Reply with an ACK.
-        let _ = writer.send(Bytes::from("Ack")).await;
+        // let _ = writer.send(Bytes::from("Ack")).await;
+        {
+            let mut shareable_writer = writer.lock().await;
+            let _ = shareable_writer.send(Bytes::from("Ack")).await;
+        }
 
         // Deserialize and parse the message.
         match bincode::deserialize(&serialized) {
@@ -393,7 +408,7 @@ struct PrimaryReceiverHandler {
 impl MessageHandler for PrimaryReceiverHandler {
     async fn dispatch(
         &self,
-        _writer: &mut Writer,
+        _writer: Arc<Mutex<Writer>>,
         serialized: Bytes,
     ) -> Result<(), Box<dyn Error>> {
         // Deserialize the message and send it to the synchronizer.

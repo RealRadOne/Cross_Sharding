@@ -1,13 +1,17 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::worker::{Round, WorkerMessage};
 use crate::execution_queue::ExecutionQueue;
+use crate::writer_store::WriterStore;
 use bytes::Bytes;
 use config::{Committee, WorkerId};
 use crypto::{Digest, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
+use futures::SinkExt;
+use std::sync::{Arc};
+use futures::lock::Mutex;
 use log::{debug, error, info};
-use network::SimpleSender;
+use network::{SimpleSender, Writer};
 use primary::PrimaryWorkerMessage;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,6 +37,8 @@ pub struct Synchronizer {
     committee: Committee,
     // The persistent storage.
     store: Store,
+    // Writer handle (socket to send an ack to the corresponding client)
+    writer_store: Arc<Mutex<WriterStore>>,
     // small-bank handler to execute transacrtions
     sb_handler: SmallBankTransactionHandler,
     /// The depth of the garbage collection.
@@ -67,6 +73,7 @@ impl Synchronizer {
         id: WorkerId,
         committee: Committee,
         store: Store,
+        writer_store: Arc<Mutex<WriterStore>>,
         sb_handler: SmallBankTransactionHandler,
         gc_depth: Round,
         sync_retry_delay: u64,
@@ -82,6 +89,7 @@ impl Synchronizer {
                 id,
                 committee,
                 store,
+                writer_store,
                 sb_handler,
                 gc_depth,
                 sync_retry_delay,

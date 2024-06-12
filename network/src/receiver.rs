@@ -7,6 +7,8 @@ use futures::stream::StreamExt as _;
 use log::{debug, info, warn};
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::{Arc};
+use futures::lock::Mutex;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -23,7 +25,7 @@ pub trait MessageHandler: Clone + Send + Sync + 'static {
     /// number of `Sender<T>` channels. Then implement `dispatch` to deserialize incoming messages and
     /// forward them through the appropriate delivery channel. Then `writer` can be used to send back
     /// responses or acknowledgements to the sender machine (see unit tests for examples).
-    async fn dispatch(&self, writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>>;
+    async fn dispatch(&self, writer: Arc<Mutex<Writer>>, message: Bytes) -> Result<(), Box<dyn Error>>;
 }
 
 /// For each incoming request, we spawn a new runner responsible to receive messages and forward them
@@ -69,10 +71,12 @@ impl<Handler: MessageHandler> Receiver<Handler> {
         tokio::spawn(async move {
             let transport = Framed::new(socket, LengthDelimitedCodec::new());
             let (mut writer, mut reader) = transport.split();
+            let shareable_writer: Arc<Mutex<Writer>> = Arc::new(Mutex::new(writer));
+
             while let Some(frame) = reader.next().await {
                 match frame.map_err(|e| NetworkError::FailedToReceiveMessage(peer, e)) {
                     Ok(message) => {
-                        if let Err(e) = handler.dispatch(&mut writer, message.freeze()).await {
+                        if let Err(e) = handler.dispatch(shareable_writer.clone(), message.freeze()).await {
                             warn!("{}", e);
                             return;
                         }

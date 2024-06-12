@@ -1,11 +1,14 @@
 
 use crate::worker::WorkerMessage;
 use crate::missing_edge_manager::MissingEdgeManager;
+use crate::writer_store::WriterStore;
 use petgraph::graphmap::DiGraphMap;
 use std::sync::{Arc, Mutex};
+use futures::SinkExt;
 use tokio::task::JoinHandle;
 use std::collections::{LinkedList, HashSet, HashMap, VecDeque};
 use bytes::Bytes;
+use network::Writer;
 use crypto::Digest;
 use store::Store;
 use smallbank::SmallBankTransactionHandler;
@@ -27,15 +30,17 @@ struct QueueElement{
 pub struct ExecutionQueue {
     queue: LinkedList<QueueElement>,
     store: Store,
+    writer_store: Arc<futures::lock::Mutex<WriterStore>>,
     sb_handler: SmallBankTransactionHandler,
     missed_edge_manager: MissingEdgeManager,
 }
 
 impl ExecutionQueue {
-    pub fn new(store: Store, sb_handler: SmallBankTransactionHandler, missed_edge_manager: MissingEdgeManager) -> ExecutionQueue {
+    pub fn new(store: Store, writer_store: Arc<futures::lock::Mutex<WriterStore>>, sb_handler: SmallBankTransactionHandler, missed_edge_manager: MissingEdgeManager) -> ExecutionQueue {
         ExecutionQueue{
             queue: LinkedList::new(),
             store: store,
+            writer_store: writer_store,
             sb_handler: sb_handler,
             missed_edge_manager: missed_edge_manager,
         }
@@ -115,7 +120,7 @@ impl ExecutionQueue {
                         WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, missed) => {
                             // deserialize received serialized glbal order graph
                             let dag: DiGraphMap<Node, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
-                            let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.sb_handler.clone());
+                            let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.writer_store.clone(), self.sb_handler.clone());
                             parallel_execution.execute();    
                         },
                         _ => panic!("PrimaryWorkerMessage::Execute : Unexpected global order graph at execution"),
@@ -134,14 +139,16 @@ impl ExecutionQueue {
 pub struct ParallelExecution {
     global_order_graph: DiGraphMap<Node, u8>,
     store: Store,
+    writer_store: Arc<futures::lock::Mutex<WriterStore>>,
     sb_handler: SmallBankTransactionHandler,
 }
 
 impl ParallelExecution {
-    pub fn new(global_order_graph: DiGraphMap<Node, u8>, store: Store, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
+    pub fn new(global_order_graph: DiGraphMap<Node, u8>, store: Store, writer_store: Arc<futures::lock::Mutex<WriterStore>>, sb_handler: SmallBankTransactionHandler) -> ParallelExecution {
         ParallelExecution{
             global_order_graph,
             store,
+            writer_store,
             sb_handler,
         }
     }
@@ -175,7 +182,7 @@ impl ParallelExecution {
         // Traverse the graph and execute the nodes using thread pool
         let mut blocking_tasks: Vec<JoinHandle<()>> = Vec::new();
         for _ in 0..MAX_THREADS {
-            let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.sb_handler.clone(), shared_queue.clone());
+            let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.writer_store.clone() ,self.sb_handler.clone(), shared_queue.clone());
             blocking_tasks.push(task);
         }
 
@@ -191,6 +198,7 @@ impl ParallelExecution {
 pub struct ParallelExecutionThread {
     global_order_graph: DiGraphMap<Node, u8>,
     store: Store,
+    writer_store: Arc<futures::lock::Mutex<WriterStore>>,
     sb_handler: SmallBankTransactionHandler,
     shared_queue: Arc<Mutex<VecDeque<Node>>>,
 }
@@ -200,6 +208,7 @@ impl ParallelExecutionThread {
     pub fn spawn(
         global_order_graph: DiGraphMap<Node, u8>,
         store: Store,
+        writer_store: Arc<futures::lock::Mutex<WriterStore>>,
         sb_handler: SmallBankTransactionHandler,
         shared_queue: Arc<Mutex<VecDeque<Node>>>,
     ) -> JoinHandle<()> {
@@ -207,6 +216,7 @@ impl ParallelExecutionThread {
             Self {
                 global_order_graph,
                 store,
+                writer_store,
                 sb_handler,
                 shared_queue,
             }
@@ -220,20 +230,29 @@ impl ParallelExecutionThread {
     async fn run(&mut self) {
         let i: usize = 0;
         loop {
-            let mut tx_id: Vec<u8> = vec![];
-
+            let mut tx_uid: u64 = 0;
             {
                 let mut locked_queue = self.shared_queue.lock().unwrap();
                 if locked_queue.is_empty() { 
                     break; 
                 }
-                let tx_id = locked_queue.pop_front().unwrap().to_le_bytes().to_vec();
+
+                tx_uid = locked_queue.pop_front().unwrap();
             }
+            let tx_id_vec = tx_uid.to_le_bytes().to_vec();
 
             // Get the actual transaction against tx_id from the Store
-            match self.store.read(tx_id).await {
+            match self.store.read(tx_id_vec.clone()).await {
                 Ok(Some(tx)) => {
                     self.sb_handler.execute_transaction(Bytes::from(tx));
+                    {
+                        let mut writer_store_lock = self.writer_store.lock().await;
+                        if writer_store_lock.writer_exists(tx_uid){
+                            let mut writer: Arc<futures::lock::Mutex<Writer>> = writer_store_lock.get_writer(tx_uid);
+                            let mut writer_lock = writer.lock().await;
+                            let _ = writer_lock.send(Bytes::from(tx_id_vec)).await;
+                        }
+                    }                        
                 }
                 Ok(None) => (),
                 Err(e) => error!("{}", e),

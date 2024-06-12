@@ -7,8 +7,10 @@ from time import sleep
 from benchmark.commands import CommandMaker
 from benchmark.config import Key, LocalCommittee, NodeParameters, BenchParameters, ConfigError
 from benchmark.logs import LogParser, ParseError
+from benchmark.fairness_logs import FairnessParseError, FairnessLogParser
 from benchmark.utils import Print, BenchError, PathMaker
 
+USE_FAIRNESS_PARSER = False
 
 class LocalBench:
     BASE_PORT = 3000
@@ -156,8 +158,11 @@ class LocalBench:
 
             # Parse logs and return the parser.
             Print.info('Parsing logs...')
-            return LogParser.process(PathMaker.logs_path(), faults=self.faults)
+            if USE_FAIRNESS_PARSER:
+                return FairnessLogParser.process(PathMaker.logs_path(), faults=self.faults)
+            else:
+                return LogParser.process(PathMaker.logs_path(), faults=self.faults)
 
-        except (subprocess.SubprocessError, ParseError) as e:
+        except (subprocess.SubprocessError, FairnessParseError if USE_FAIRNESS_PARSER else ParseError) as e:
             self._kill_nodes()
             raise BenchError('Failed to run benchmark', e)

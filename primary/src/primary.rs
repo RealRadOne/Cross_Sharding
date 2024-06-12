@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use futures::lock::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -226,9 +227,13 @@ struct PrimaryReceiverHandler {
 
 #[async_trait]
 impl MessageHandler for PrimaryReceiverHandler {
-    async fn dispatch(&self, writer: &mut Writer, serialized: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn dispatch(&self, writer: Arc<Mutex<Writer>>, serialized: Bytes) -> Result<(), Box<dyn Error>> {
         // Reply with an ACK.
-        let _ = writer.send(Bytes::from("Ack")).await;
+        // let _ = writer.send(Bytes::from("Ack")).await;
+        {
+            let mut shareable_writer = writer.lock().await;
+            let _ = shareable_writer.send(Bytes::from("Ack")).await;
+        }
 
         // Deserialize and parse the message.
         match bincode::deserialize(&serialized).map_err(DagError::SerializationError)? {
@@ -258,7 +263,7 @@ struct WorkerReceiverHandler {
 impl MessageHandler for WorkerReceiverHandler {
     async fn dispatch(
         &self,
-        _writer: &mut Writer,
+        _writer: Arc<Mutex<Writer>>,
         serialized: Bytes,
     ) -> Result<(), Box<dyn Error>> {
         // Deserialize and parse the message.

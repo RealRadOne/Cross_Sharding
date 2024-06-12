@@ -4,6 +4,8 @@ use futures::sink::SinkExt as _;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{sleep, Duration};
+use std::sync::{Arc};
+use futures::lock::Mutex;
 
 #[derive(Clone)]
 struct TestHandler {
@@ -12,9 +14,13 @@ struct TestHandler {
 
 #[async_trait]
 impl MessageHandler for TestHandler {
-    async fn dispatch(&self, writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn dispatch(&self, writer: Arc<Mutex<Writer>>, message: Bytes) -> Result<(), Box<dyn Error>> {
         // Reply with an ACK.
-        let _ = writer.send(Bytes::from("Ack")).await;
+        // let _ = writer.send(Bytes::from("Ack")).await;
+        {
+            let mut shareable_writer = writer.lock().await;
+            let _ = shareable_writer.send(Bytes::from("Ack")).await;
+        }
 
         // Deserialize the message.
         let message = bincode::deserialize(&message).unwrap();

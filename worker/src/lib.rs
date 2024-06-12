@@ -10,6 +10,7 @@ mod global_order_quorum_waiter;
 mod global_order_processor;
 mod missing_edge_manager;
 mod execution_queue;
+mod writer_store;
 mod worker;
 
 #[cfg(test)]

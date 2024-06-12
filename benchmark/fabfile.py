@@ -1,8 +1,9 @@
 # Copyright(C) Facebook, Inc. and its affiliates.
 from fabric import task
 
-from benchmark.local import LocalBench
+from benchmark.local import LocalBench, USE_FAIRNESS_PARSER
 from benchmark.logs import ParseError, LogParser
+from benchmark.fairness_logs import FairnessParseError, FairnessLogParser
 from benchmark.utils import Print
 from benchmark.plot import Ploter, PlotError
 from benchmark.instance import InstanceManager
@@ -159,7 +160,13 @@ def kill(ctx):
 @task
 def logs(ctx):
     ''' Print a summary of the logs '''
-    try:
-        print(LogParser.process('./logs', faults='?').result())
-    except ParseError as e:
-        Print.error(BenchError('Failed to parse logs', e))
+    if USE_FAIRNESS_PARSER:
+        try:
+            print(FairnessLogParser.process('./logs', faults='?').result())
+        except FairnessParseError as e:
+            Print.error(BenchError('Failed to parse logs', e))
+    else:
+        try:
+            print(LogParser.process('./logs', faults='?').result())
+        except ParseError as e:
+            Print.error(BenchError('Failed to parse logs', e))

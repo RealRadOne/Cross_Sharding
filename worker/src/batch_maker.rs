@@ -1,6 +1,7 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use crate::quorum_waiter::QuorumWaiterMessage;
 use crate::worker::{WorkerMessage, Round};
+use crate::writer_store::WriterStore;
 use bytes::Bytes;
 #[cfg(feature = "benchmark")]
 use crypto::Digest;
@@ -9,17 +10,21 @@ use crypto::PublicKey;
 use ed25519_dalek::{Digest as _, Sha512};
 #[cfg(feature = "benchmark")]
 use log::info;
-use network::ReliableSender;
+use network::{ReliableSender, Writer};
 #[cfg(feature = "benchmark")]
 use std::convert::TryInto as _;
 use std::net::SocketAddr;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use core::convert::TryInto;
 // use tokio::macros::support::Poll;
 use tokio::time::{sleep, Duration, Instant};
 use graph::LocalOrderGraph;
 use smallbank::SmallBankTransactionHandler;
 // use debugtimer::DebugTimer;
+use std::sync::{Arc};
+use futures::lock::Mutex;
+use std::collections::{LinkedList};
+use store::{Store, StoreError};
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]
@@ -29,14 +34,19 @@ pub type Transaction = Vec<u8>;
 pub type Batch = Vec<Transaction>;
 type Node = u64;
 
+/// The default channel capacity for channel of the writer.
+pub const CHANNEL_CAPACITY: usize = 1_000;
+
 /// Assemble clients transactions into batches.
 pub struct BatchMaker {
+    // Writer handle (socket to send an ack to the corresponding client)
+    writer_store: Arc<Mutex<WriterStore>>,
     /// The preferred batch size (in bytes).
     batch_size: usize,
     /// The maximum delay after which to seal the batch (in ms).
     max_batch_delay: u64,
     /// Channel to receive transactions from the network.
-    rx_transaction: Receiver<Transaction>,
+    rx_transaction: Receiver<(Transaction, Arc<Mutex<Writer>>)>,
     /// Output channel to deliver sealed batches to the `QuorumWaiter`.
     tx_message: Sender<QuorumWaiterMessage>,
     /// Input channel to receive new round number when advanced
@@ -57,9 +67,10 @@ pub struct BatchMaker {
 
 impl BatchMaker {
     pub fn spawn(
+        writer_store: Arc<Mutex<WriterStore>>,
         batch_size: usize,
         max_batch_delay: u64,
-        rx_transaction: Receiver<Transaction>,
+        rx_transaction: Receiver<(Transaction, Arc<Mutex<Writer>>)>,
         tx_message: Sender<QuorumWaiterMessage>,
         rx_batch_round: Receiver<Round>,
         workers_addresses: Vec<(PublicKey, SocketAddr)>,
@@ -67,6 +78,7 @@ impl BatchMaker {
     ) {
         tokio::spawn(async move {
             Self {
+                writer_store,
                 batch_size,
                 max_batch_delay,
                 rx_transaction,
@@ -101,9 +113,17 @@ impl BatchMaker {
             
             tokio::select! {
                 // Assemble client transactions into batches of preset size.
-                Some(transaction) = self.rx_transaction.recv() => {
+                Some((transaction, writer)) = self.rx_transaction.recv() => {
                     self.current_batch_size += transaction.len();
-                    self.current_batch.push(transaction);
+                    self.current_batch.push(transaction.clone());
+                    let tx_uid: u64 = self.sb_handler.get_transaction_uid(Bytes::from(transaction));
+
+                    // Add writer to the in-memory store
+                    {
+                        let mut writer_store_lock = self.writer_store.lock().await;
+                        writer_store_lock.add_writer(tx_uid, writer);
+                    }
+
                     if self.current_batch_size >= self.batch_size {
                         self.seal().await;
                         timer.as_mut().reset(Instant::now() + Duration::from_millis(self.max_batch_delay));
