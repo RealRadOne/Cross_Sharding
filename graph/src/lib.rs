@@ -189,7 +189,7 @@ impl PrunedGraph{
         let mut pruned_graph:  DiGraphMap<Node, u8> = global_dependency_graph.clone();
         let mut idx: usize = strongely_connected_components.len()-1;
         
-        while idx>=0{
+        while strongely_connected_components.len() > 0 && idx>=0{
             let mut is_fixed: bool = false;
             for node in &strongely_connected_components[idx]{
                 if fixed_transactions.contains(node){

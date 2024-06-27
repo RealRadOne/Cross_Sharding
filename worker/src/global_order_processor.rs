@@ -1,11 +1,14 @@
 // Copyright(C) Heena Nagda.
-use crate::worker::SerializedBatchDigestMessage;
+use crate::worker::{SerializedBatchDigestMessage, WorkerMessage};
+use crate::missing_edge_manager::MissingEdgeManager;
 use config::WorkerId;
 use crypto::Digest;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use primary::WorkerPrimaryMessage;
 use std::convert::TryInto;
+use std::sync::{Arc};
+use futures::lock::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::info;
@@ -23,6 +26,8 @@ impl GlobalOrderProcessor {
         id: WorkerId,
         // The persistent storage.
         mut store: Store,
+        // Object of missing_edge_manager
+        missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
         // Input channel to receive batches.
         mut rx_global_order: Receiver<SerializedGlobalOrderMessage>,
         // Output channel to send out batches' digests.
@@ -34,6 +39,20 @@ impl GlobalOrderProcessor {
             // TODO: It is GlobalOrderInfo(GlobalOrder, MissedEdgePairs) NOT just GlobalOrder
             while let Some(global_order) = rx_global_order.recv().await {
                 info!("Received Global order to process further. own_digest = {:?}", own_digest);
+
+                if(!own_digest){
+                    match bincode::deserialize(&global_order).unwrap() {
+                        WorkerMessage::GlobalOrderInfo(global_order_graph, missed_pairs) => {
+                            for (from, to) in &missed_pairs{
+                                let mut missed_edge_manager_lock = missed_edge_manager.lock().await;
+                                missed_edge_manager_lock.add_missing_edge(*from, *to).await;
+                                missed_edge_manager_lock.add_updated_edge(*from, *to, 1).await;
+                            }
+                        },
+                        _ => panic!("GlobalOrderProcessor::spawn : Unexpected OthersBatch"),
+                    }
+                }
+
                 // Hash the batch.
                 let digest = Digest(Sha512::digest(&global_order).as_slice()[..32].try_into().unwrap());
 

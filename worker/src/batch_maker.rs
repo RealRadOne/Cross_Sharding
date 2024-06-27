@@ -159,17 +159,33 @@ impl BatchMaker {
             .collect();
 
         // TODO: Graphs
-        info!("size of current batch = {:?}", self.current_batch.len());
+        // info!("size of current batch = {:?}", self.current_batch.len());
         // TODO: Take non-sampled transactions
         let mut local_order: Vec<(Node, Transaction)> = Vec::new();
         self.current_batch_size = 0;
+
+        let tx_uids: Vec<_> = self
+            .current_batch
+            .iter()
+            .filter_map(|tx| tx[1..9].try_into().ok())
+            .collect();
+
         let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
-        let mut idx: Node = 0;
-        for tx in &drained_batch{
-            local_order.push((idx, tx.clone()));
-            // local_order.push((self.sb_handler.get_transaction_uid(Bytes::from(<Vec<u8> as TryInto<Vec<u8>>>::try_into(tx.clone()).unwrap())), tx.clone()));
-            idx += 1;
-        };
+
+        for i in 0..tx_uids.len(){
+            let tx_uid = u64::from_be_bytes(tx_uids[i]);
+            let tx = &drained_batch[i];
+            // info!("tx_uid Received = {:?}", tx_uid);
+            local_order.push((tx_uid, tx.clone()));
+        }
+
+        // let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
+        // let mut idx: Node = 0;
+        // for tx in &drained_batch{
+        //     local_order.push((idx, tx.clone()));
+        //     // local_order.push((self.sb_handler.get_transaction_uid(Bytes::from(<Vec<u8> as TryInto<Vec<u8>>>::try_into(tx.clone()).unwrap())), tx.clone()));
+        //     idx += 1;
+        // };
 
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
         let mut batch = local_order_graph_obj.get_dag_serialized();
@@ -207,7 +223,6 @@ impl BatchMaker {
         // Broadcast the batch through the network.
         let (names, addresses): (Vec<_>, _) = self.workers_addresses.iter().cloned().unzip();
         let bytes = Bytes::from(serialized.clone());
-        info!("#bytes to send = {:?}", bytes.len());
         let handlers = self.network.broadcast(addresses, bytes).await;
 
         // Send the batch through the deliver channel for further processing.

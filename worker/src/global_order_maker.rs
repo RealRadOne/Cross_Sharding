@@ -10,6 +10,8 @@ use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use std::convert::TryInto;
 use std::net::SocketAddr;
+use std::sync::{Arc};
+use futures::lock::Mutex;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::{info};
@@ -43,7 +45,7 @@ pub struct GlobalOrderMaker{
     /// The persistent storage.
     store: Store,
     /// Object of missing_edge_manager
-    missed_edge_manager: MissingEdgeManager,
+    missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
     /// Current round.
     current_round: Round,
     /// Local orders
@@ -69,7 +71,7 @@ impl GlobalOrderMaker {
         committee: Committee,
         id: WorkerId,
         mut store: Store,
-        mut missed_edge_manager: MissingEdgeManager,
+        mut missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
         mut rx_round: Receiver<Round>,
         mut rx_batch: Receiver<GlobalOrderMakerMessage>,
         // tx_digest: Sender<SerializedBatchDigestMessage>,
@@ -146,16 +148,23 @@ impl GlobalOrderMaker {
                 let mut missed_pairs: HashSet<(Node, Node)> = HashSet::new();
                 
                 for ((from, to), count) in &missed_edges{
-                    self.missed_edge_manager.add_missing_edge(*from, *to);
-                    self.missed_edge_manager.add_updated_edge(*from, *to, *count);
+                    {
+                        let mut missed_edge_manager_lock = self.missed_edge_manager.lock().await;
+                        missed_edge_manager_lock.add_missing_edge(*from, *to).await;
+                        missed_edge_manager_lock.add_updated_edge(*from, *to, *count).await;
+                    }
 
                     if !missed_pairs.contains(&(*to, *from)){
                         missed_pairs.insert((*from, *to));
                     }
                 }
                 
-                let message = WorkerMessage::GlobalOrderInfo(global_order_graph, missed_pairs);
+                let message = WorkerMessage::GlobalOrderInfo(global_order_graph, missed_pairs.clone());
                 let serialized = bincode::serialize(&message).expect("Failed to serialize global order graph");
+
+                // for (from, to) in &missed_pairs{
+                //     info!("Missed pair = {:?} -> {:?} added to the serialized graph = {:?}", *from, *to, serialized);
+                // }
 
                 #[cfg(feature = "benchmark")]
                 {
@@ -200,8 +209,9 @@ impl GlobalOrderMaker {
     /// Update the edges those were missed in previous global order, and now found in new set of transactions
     async fn update_missed_edges(&mut self, dag: DiGraphMap<Node, u8>){
         for (from, to, weight) in dag.all_edges(){
-            if self.missed_edge_manager.is_missing_edge(from, to).await {
-                self.missed_edge_manager.add_updated_edge(from, to, 1).await;
+            let mut missed_edge_manager_lock = self.missed_edge_manager.lock().await;
+            if missed_edge_manager_lock.is_missing_edge(from, to).await {
+                missed_edge_manager_lock.add_updated_edge(from, to, 1).await;
             }
         }
     }

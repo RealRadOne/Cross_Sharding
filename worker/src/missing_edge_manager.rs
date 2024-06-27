@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use store::Store;
 use config::Committee;
-use log::error;
+use log::{error, info};
 
 type Node = u64;
 
@@ -27,7 +27,8 @@ impl MissingEdgeManager {
     // self.round.to_le_bytes()
     // let batch_round = u64::from_le_bytes(batch_round_arr);
     pub async fn add_missing_edge(&mut self, v1: Node, v2: Node) {
-
+        // info!("add_missing_edge = {:?} -> {:?}", v1, v2);
+        // info!("add_missing_edge = {:?} -> {:?}", v2, v1);
         let message_fwd = EdgeManagerFormat::MissingEdgeFormat(vec![v1, v2]);
         let message_rev = EdgeManagerFormat::MissingEdgeFormat(vec![v2, v1]);
 
@@ -79,6 +80,7 @@ impl MissingEdgeManager {
     }
 
     pub async fn is_missing_edge_updated(&mut self, from: Node, to: Node) -> bool {
+        info!("is_missing_edge_updated = {:?} -> {:?}", from, to);
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missed_edge_updated");
         

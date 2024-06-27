@@ -32,11 +32,11 @@ pub struct ExecutionQueue {
     store: Store,
     writer_store: Arc<futures::lock::Mutex<WriterStore>>,
     sb_handler: SmallBankTransactionHandler,
-    missed_edge_manager: MissingEdgeManager,
+    missed_edge_manager: Arc<futures::lock::Mutex<MissingEdgeManager>>,
 }
 
 impl ExecutionQueue {
-    pub fn new(store: Store, writer_store: Arc<futures::lock::Mutex<WriterStore>>, sb_handler: SmallBankTransactionHandler, missed_edge_manager: MissingEdgeManager) -> ExecutionQueue {
+    pub fn new(store: Store, writer_store: Arc<futures::lock::Mutex<WriterStore>>, sb_handler: SmallBankTransactionHandler, missed_edge_manager: Arc<futures::lock::Mutex<MissingEdgeManager>>) -> ExecutionQueue {
         ExecutionQueue{
             queue: LinkedList::new(),
             store: store,
@@ -51,6 +51,7 @@ impl ExecutionQueue {
             Ok(Some(global_order_info)) => {
                 match bincode::deserialize(&global_order_info).unwrap() {
                     WorkerMessage::GlobalOrderInfo(global_order_graph, missed) => {
+                        info!("Adding digest = {:?} to the execution queue", digest);
                         self.queue.push_back(QueueElement{ global_order_digest: digest, missed_pairs: missed, updated_edges: Vec::new()});
                     },
                     _ => panic!("PrimaryWorkerMessage::Execute : Unexpected batch"),
@@ -63,7 +64,9 @@ impl ExecutionQueue {
 
     pub async fn execute(&mut self, digest: Digest){
         // add new element in the queue associated with this new digest
-        self.add_to_queue(digest);
+        info!("execution STARTS");
+        self.add_to_queue(digest).await;
+        info!("execution queue length = {:?}", self.queue.len());
 
         // traverse the queue from front and update missing pairs if any
         for element in self.queue.iter_mut() {
@@ -75,11 +78,12 @@ impl ExecutionQueue {
             let mut updated_pairs: Vec<(Node, Node)> = Vec::new();
             let mut updated_edges: Vec<(Node, Node)> = Vec::new();
             for missed_pair in &element.missed_pairs{
-                if self.missed_edge_manager.is_missing_edge_updated(missed_pair.0, missed_pair.1).await{
+                let mut missed_edge_manager_lock = self.missed_edge_manager.lock().await;
+                if missed_edge_manager_lock.is_missing_edge_updated(missed_pair.0, missed_pair.1).await{
                     updated_pairs.push((missed_pair.0, missed_pair.1));
                     updated_edges.push((missed_pair.0, missed_pair.1));
                 }
-                else if self.missed_edge_manager.is_missing_edge_updated(missed_pair.1, missed_pair.0).await{
+                else if missed_edge_manager_lock.is_missing_edge_updated(missed_pair.1, missed_pair.0).await{
                     updated_pairs.push((missed_pair.0, missed_pair.1));
                     updated_edges.push((missed_pair.1, missed_pair.0));
                 }
@@ -109,6 +113,8 @@ impl ExecutionQueue {
             }
         }
 
+        info!("n_elements_to_execute = {:?}", n_elements_to_execute);
+
         // remove queue elements and Execute global order if no more missed edges
         for _ in 0..n_elements_to_execute{
             let queue_element: QueueElement = self.queue.pop_front().unwrap();
@@ -121,7 +127,7 @@ impl ExecutionQueue {
                             // deserialize received serialized glbal order graph
                             let dag: DiGraphMap<Node, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
                             let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.writer_store.clone(), self.sb_handler.clone());
-                            parallel_execution.execute();    
+                            parallel_execution.execute().await;    
                         },
                         _ => panic!("PrimaryWorkerMessage::Execute : Unexpected global order graph at execution"),
                     }

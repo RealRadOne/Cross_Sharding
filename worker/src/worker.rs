@@ -67,7 +67,7 @@ pub struct Worker {
     /// small-bank handler to execute transacrtions
     sb_handler: SmallBankTransactionHandler,
     /// Object of missing edge manager
-    missed_edge_manager: MissingEdgeManager,
+    missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
     /// Keeping track of the elements in the Execution Queue (on worker)
     exe_queue: ExecutionQueue,
     /// Writer handle (socket to send an ack to the corresponding client)
@@ -85,7 +85,7 @@ impl Worker {
         sb_handler: SmallBankTransactionHandler,
     ) {
         // Define a worker instance.
-        let missed_edge_manager = MissingEdgeManager::new(store.clone(), committee.clone());
+        let missed_edge_manager = Arc::new(Mutex::new(MissingEdgeManager::new(store.clone(), committee.clone())));
         let writer_store = Arc::new(Mutex::new(WriterStore::new()));
 
         let worker = Self {
@@ -146,6 +146,7 @@ impl Worker {
         GlobalOrderProcessor::spawn(
             id,
             store,
+            missed_edge_manager.clone(),
             /* rx_global_order */ rx_global_order_processor,
             /* tx_digest */ tx_primary,
             /* own_batch */ true,
@@ -323,6 +324,7 @@ impl Worker {
         GlobalOrderProcessor::spawn(
             self.id,
             self.store.clone(),
+            self.missed_edge_manager.clone(),
             /* rx_global_order */ rx_global_order_processor,
             /* tx_digest */ tx_primary,
             /* own_batch */ false,
