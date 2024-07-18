@@ -70,10 +70,10 @@ impl GlobalOrderMaker {
     pub fn spawn(
         committee: Committee,
         id: WorkerId,
-        mut store: Store,
-        mut missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
-        mut rx_round: Receiver<Round>,
-        mut rx_batch: Receiver<GlobalOrderMakerMessage>,
+        store: Store,
+        missed_edge_manager: Arc<Mutex<MissingEdgeManager>>,
+        rx_round: Receiver<Round>,
+        rx_batch: Receiver<GlobalOrderMakerMessage>,
         // tx_digest: Sender<SerializedBatchDigestMessage>,
         tx_message: Sender<GlobalOrderQuorumWaiterMessage>,
         workers_addresses: Vec<(PublicKey, SocketAddr)>,
@@ -140,9 +140,9 @@ impl GlobalOrderMaker {
             }
 
             if send_order{
-                /// TODO: Pending and fixed transaction threshold
+                // TODO: Pending and fixed transaction threshold
                 // create a Global Order based on n-f received local orders 
-                let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 3.0, 2.5);
+                let global_order_graph_obj: GlobalOrderGraph = GlobalOrderGraph::new(self.local_order_dags.clone(), 0.0, 0.0); // 3.0, 2.5
                 let global_order_graph = global_order_graph_obj.get_dag_serialized();
                 let missed_edges = global_order_graph_obj.get_missed_edges();
                 let mut missed_pairs: HashSet<(Node, Node)> = HashSet::new();
@@ -208,7 +208,7 @@ impl GlobalOrderMaker {
 
     /// Update the edges those were missed in previous global order, and now found in new set of transactions
     async fn update_missed_edges(&mut self, dag: DiGraphMap<Node, u8>){
-        for (from, to, weight) in dag.all_edges(){
+        for (from, to, _weight) in dag.all_edges(){
             let mut missed_edge_manager_lock = self.missed_edge_manager.lock().await;
             if missed_edge_manager_lock.is_missing_edge(from, to).await {
                 missed_edge_manager_lock.add_updated_edge(from, to, 1).await;

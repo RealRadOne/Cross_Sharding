@@ -199,7 +199,8 @@ impl Client {
             interval.as_mut().tick().await;
             let now = Instant::now();
 
-            for x in 0..burst {
+            let mut x : u64 = 0;
+            while x <= burst {
                 let tx_uid;
                 if x == counter % burst{
                     tx_uid = counter;
@@ -239,6 +240,7 @@ impl Client {
                     tokio::select! {
                         // Sending a transaction
                         request = (*writer).send(bytes.clone()) => {
+                            x += 1;
                             match request {
                                 Ok(()) => {
                                     // TODO: Add this even in the Log file

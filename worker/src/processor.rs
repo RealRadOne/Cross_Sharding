@@ -1,7 +1,10 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
+use crate::worker::WorkerMessage;
 // use crate::worker::SerializedBatchDigestMessage;
 use crate::global_order_maker::GlobalOrderMakerMessage;
+use petgraph::graphmap::DiGraphMap;
 use config::WorkerId;
+use graph::LocalOrderGraph;
 // use crypto::Digest;
 // use ed25519_dalek::Digest as _;
 // use ed25519_dalek::Sha512;
@@ -16,6 +19,7 @@ pub mod processor_tests;
 
 /// Indicates a serialized `WorkerMessage::Batch` message.
 pub type SerializedBatchMessage = Vec<u8>;
+type Node = u64;
 
 /// Hashes and stores batches, it then outputs the batch's digest.
 pub struct Processor;
@@ -23,9 +27,9 @@ pub struct Processor;
 impl Processor {
     pub fn spawn(
         // Our worker's id.
-        id: WorkerId,
+        _id: WorkerId,
         // The persistent storage.
-        mut store: Store,
+        _store: Store,
         // Input channel to receive batches.
         mut rx_batch: Receiver<SerializedBatchMessage>,
         /*// Output channel to send out batches' digests.
@@ -37,6 +41,18 @@ impl Processor {
     ) {
         tokio::spawn(async move {
             while let Some(batch) = rx_batch.recv().await {
+                // store each transaction into the store
+                match bincode::deserialize(&batch).unwrap() {
+                    WorkerMessage::Batch(mut serialized_local_order_graph_obj) => {
+                        let _ = serialized_local_order_graph_obj.pop();
+                        let dag: DiGraphMap<Node, u8> = LocalOrderGraph::get_dag_deserialized(serialized_local_order_graph_obj);
+                        for node in dag.nodes(){
+                            // TODO : Tx id 
+                        }
+                    },
+                    _ => panic!("Processor::spawn : Unexpected batch"),
+                }
+
                 // send batch to global order
                 let message1 = GlobalOrderMakerMessage {batch:batch.clone(), own_digest:own_digest}; 
                 tx_global_order_batch

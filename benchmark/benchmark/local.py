@@ -10,7 +10,7 @@ from benchmark.logs import LogParser, ParseError
 from benchmark.fairness_logs import FairnessParseError, FairnessLogParser
 from benchmark.utils import Print, BenchError, PathMaker
 
-USE_FAIRNESS_PARSER = False
+USE_FAIRNESS_PARSER = True
 
 class LocalBench:
     BASE_PORT = 3000

@@ -70,7 +70,7 @@ impl<Handler: MessageHandler> Receiver<Handler> {
     async fn spawn_runner(socket: TcpStream, peer: SocketAddr, handler: Handler) {
         tokio::spawn(async move {
             let transport = Framed::new(socket, LengthDelimitedCodec::new());
-            let (mut writer, mut reader) = transport.split();
+            let (writer, mut reader) = transport.split();
             let shareable_writer: Arc<Mutex<Writer>> = Arc::new(Mutex::new(writer));
 
             while let Some(frame) = reader.next().await {

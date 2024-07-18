@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use store::Store;
 use config::Committee;
-use log::{error, info};
+use log::{error};
 
 type Node = u64;
 
@@ -80,7 +80,7 @@ impl MissingEdgeManager {
     }
 
     pub async fn is_missing_edge_updated(&mut self, from: Node, to: Node) -> bool {
-        info!("is_missing_edge_updated = {:?} -> {:?}", from, to);
+        // info!("is_missing_edge_updated = {:?} -> {:?}", from, to);
         let message = EdgeManagerFormat::MissingEdgeFormat(vec![from, to]);
         let serialized = bincode::serialize(&message).expect("Failed to serialize missing edge while checking into the store about missed_edge_updated");
         
@@ -97,11 +97,11 @@ impl MissingEdgeManager {
         return false;
     }
 
-    async fn u64_to_vec8(self, num: u64) -> Vec<u8>{
+    async fn _u64_to_vec8(self, num: u64) -> Vec<u8>{
         return num.to_le_bytes().to_vec().clone();
     }
 
-    async fn vec8_to_u64(self, num_vec: Vec<u8>) -> u64{
+    async fn _vec8_to_u64(self, num_vec: Vec<u8>) -> u64{
         let mut num_arr: [u8; 8] = [Default::default(); 8];
         num_arr[..8].copy_from_slice(&num_vec);
         let num = u64::from_le_bytes(num_arr);

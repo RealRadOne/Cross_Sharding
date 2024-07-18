@@ -12,9 +12,8 @@ use ed25519_dalek::{Digest as _, Sha512};
 use log::info;
 use network::{ReliableSender, Writer};
 #[cfg(feature = "benchmark")]
-use std::convert::TryInto as _;
 use std::net::SocketAddr;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use core::convert::TryInto;
 // use tokio::macros::support::Poll;
 use tokio::time::{sleep, Duration, Instant};
@@ -23,8 +22,7 @@ use smallbank::SmallBankTransactionHandler;
 // use debugtimer::DebugTimer;
 use std::sync::{Arc};
 use futures::lock::Mutex;
-use std::collections::{LinkedList};
-use store::{Store, StoreError};
+use store::{Store};
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]
@@ -35,12 +33,14 @@ pub type Batch = Vec<Transaction>;
 type Node = u64;
 
 /// The default channel capacity for channel of the writer.
-pub const CHANNEL_CAPACITY: usize = 1_000;
+// pub const CHANNEL_CAPACITY: usize = 1_000;
 
 /// Assemble clients transactions into batches.
 pub struct BatchMaker {
     // Writer handle (socket to send an ack to the corresponding client)
     writer_store: Arc<Mutex<WriterStore>>,
+    // The persistent storage.
+    store: Store,
     /// The preferred batch size (in bytes).
     batch_size: usize,
     /// The maximum delay after which to seal the batch (in ms).
@@ -68,6 +68,7 @@ pub struct BatchMaker {
 impl BatchMaker {
     pub fn spawn(
         writer_store: Arc<Mutex<WriterStore>>,
+        store: Store,
         batch_size: usize,
         max_batch_delay: u64,
         rx_transaction: Receiver<(Transaction, Arc<Mutex<Writer>>)>,
@@ -79,6 +80,7 @@ impl BatchMaker {
         tokio::spawn(async move {
             Self {
                 writer_store,
+                store,
                 batch_size,
                 max_batch_delay,
                 rx_transaction,
@@ -173,9 +175,16 @@ impl BatchMaker {
         let drained_batch: Vec<_> = self.current_batch.drain(..).collect();
 
         for i in 0..tx_uids.len(){
+            // info!("tx_uid Received = {:?}", tx_uid);
             let tx_uid = u64::from_be_bytes(tx_uids[i]);
             let tx = &drained_batch[i];
-            // info!("tx_uid Received = {:?}", tx_uid);
+
+            info!("batch_maker::seal : tx_uid to store = {:?}", tx_uid);
+
+            // Add transaction against tx_uid in the store for later execution
+            self.store.write(tx_uid.to_be_bytes().to_vec(), tx.clone()).await;
+
+            // Add transaction to create a local order
             local_order.push((tx_uid, tx.clone()));
         }
 
@@ -189,7 +198,7 @@ impl BatchMaker {
 
         let local_order_graph_obj: LocalOrderGraph = LocalOrderGraph::new(local_order, self.sb_handler.clone());
         let mut batch = local_order_graph_obj.get_dag_serialized();
-        /// Adding current round number with this batch
+        // Adding current round number with this batch
         batch.push(self.current_round.to_le_bytes().to_vec());
         
         // Serialize the batch.

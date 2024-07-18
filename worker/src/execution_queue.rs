@@ -50,7 +50,7 @@ impl ExecutionQueue {
         match self.store.read(digest.to_vec()).await {
             Ok(Some(global_order_info)) => {
                 match bincode::deserialize(&global_order_info).unwrap() {
-                    WorkerMessage::GlobalOrderInfo(global_order_graph, missed) => {
+                    WorkerMessage::GlobalOrderInfo(_global_order_graph, missed) => {
                         info!("Adding digest = {:?} to the execution queue", digest);
                         self.queue.push_back(QueueElement{ global_order_digest: digest, missed_pairs: missed, updated_edges: Vec::new()});
                     },
@@ -70,20 +70,25 @@ impl ExecutionQueue {
 
         // traverse the queue from front and update missing pairs if any
         for element in self.queue.iter_mut() {
+            info!("New element to check for missed pairs");
             // check if missed edges are found for this digest
             if element.missed_pairs.is_empty(){
+                info!("No missed pairs");
                 continue;
             }
 
             let mut updated_pairs: Vec<(Node, Node)> = Vec::new();
             let mut updated_edges: Vec<(Node, Node)> = Vec::new();
             for missed_pair in &element.missed_pairs{
+                info!("missed pair = {:?}", missed_pair);
                 let mut missed_edge_manager_lock = self.missed_edge_manager.lock().await;
                 if missed_edge_manager_lock.is_missing_edge_updated(missed_pair.0, missed_pair.1).await{
+                    info!("missed edge found");
                     updated_pairs.push((missed_pair.0, missed_pair.1));
                     updated_edges.push((missed_pair.0, missed_pair.1));
                 }
                 else if missed_edge_manager_lock.is_missing_edge_updated(missed_pair.1, missed_pair.0).await{
+                    info!("missed edge found");
                     updated_pairs.push((missed_pair.0, missed_pair.1));
                     updated_edges.push((missed_pair.1, missed_pair.0));
                 }
@@ -123,16 +128,17 @@ impl ExecutionQueue {
             match self.store.read(queue_element.global_order_digest.to_vec()).await {
                 Ok(Some(global_order_info)) => {
                     match bincode::deserialize(&global_order_info).unwrap() {
-                        WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, missed) => {
+                        WorkerMessage::GlobalOrderInfo(global_order_graph_serialized, _missed) => {
                             // deserialize received serialized glbal order graph
                             let dag: DiGraphMap<Node, u8> = GlobalOrderGraph::get_dag_deserialized(global_order_graph_serialized);
-                            let mut parallel_execution:  ParallelExecution =    ParallelExecution::new(dag, self.store.clone(), self.writer_store.clone(), self.sb_handler.clone());
+                            info!("Sending graph to the parallel execution");
+                            let mut parallel_execution:  ParallelExecution = ParallelExecution::new(dag, self.store.clone(), self.writer_store.clone(), self.sb_handler.clone());
                             parallel_execution.execute().await;    
                         },
                         _ => panic!("PrimaryWorkerMessage::Execute : Unexpected global order graph at execution"),
                     }
                 }
-                Ok(None) => (),
+                Ok(None) => error!("ExecutionQueue:execute :: global_order_digest not found in the store"),
                 Err(e) => error!("{}", e),
             } 
         }
@@ -161,11 +167,15 @@ impl ParallelExecution {
 
     pub async fn execute(&mut self){
         // find incoming edge count for each node in the graph
+        info!("ParallelExecution:execute");
+        info!("ParallelExecution:execute :: #nodes in graph = {:?}", self.global_order_graph.node_count());
+
         let mut incoming_count: HashMap<Node, usize> = HashMap::new();
         for node in self.global_order_graph.nodes(){
+            incoming_count.entry(node).or_insert(0);
             for neighbor in self.global_order_graph.neighbors(node){
                 incoming_count.entry(neighbor).or_insert(0);
-                incoming_count.insert(neighbor, incoming_count[&neighbor]+1);
+                incoming_count.insert(neighbor, incoming_count.get(&neighbor).unwrap()+1);
             }                   
         }
 
@@ -176,7 +186,7 @@ impl ParallelExecution {
                 roots.push(*node);
             }
         }
-
+        info!("ParallelExecution:execute :: #roots found = {:?}", roots.len());
         // create a shared queue: https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
         let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
         
@@ -234,9 +244,8 @@ impl ParallelExecutionThread {
     }
 
     async fn run(&mut self) {
-        let i: usize = 0;
         loop {
-            let mut tx_uid: u64 = 0;
+            let mut tx_uid: u64;
             {
                 let mut locked_queue = self.shared_queue.lock().unwrap();
                 if locked_queue.is_empty() { 
@@ -245,7 +254,8 @@ impl ParallelExecutionThread {
 
                 tx_uid = locked_queue.pop_front().unwrap();
             }
-            let tx_id_vec = tx_uid.to_le_bytes().to_vec();
+            info!("tx_uid = {:?} is going to execute in ParallelExecutionThread", tx_uid);
+            let tx_id_vec = tx_uid.to_be_bytes().to_vec();
 
             // Get the actual transaction against tx_id from the Store
             match self.store.read(tx_id_vec.clone()).await {
@@ -255,14 +265,19 @@ impl ParallelExecutionThread {
                         let mut writer_store_lock = self.writer_store.lock().await;
                         if writer_store_lock.writer_exists(tx_uid){
                             let mut writer: Arc<futures::lock::Mutex<Writer>> = writer_store_lock.get_writer(tx_uid);
+                            drop(writer_store_lock);
                             let mut writer_lock = writer.lock().await;
                             let _ = writer_lock.send(Bytes::from(tx_id_vec)).await;
                         }
                     }                        
                 }
-                Ok(None) => (),
+                Ok(None) => error!("ParallelExecutionThread :: Cannot find tx_uid = {:?} in the store", tx_uid),
                 Err(e) => error!("{}", e),
             } 
+            // Add neighbors of the current node
+            for neighbor in self.global_order_graph.neighbors(tx_uid){
+                self.shared_queue.lock().unwrap().push_back(neighbor);
+            }
         }
     }
 }

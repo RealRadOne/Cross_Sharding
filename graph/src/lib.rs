@@ -48,13 +48,13 @@ impl LocalOrderGraph{
 
         // (2) Add all the nodes into the empty graph, as per local order received
         for order in &self.local_order{
-            let node = dag.add_node((*order).0);
+            let _node = dag.add_node((*order).0);
             // info!("node added {:?} :: {:?}", (*order).0, node);
         }
 
         // // Better time complexity with some space
         let mut seen_deps: HashMap<u32, Vec<(Node, char)>> = HashMap::new();
-        for (curr_digest, tx) in &self.local_order{
+        for (curr_digest, _tx) in &self.local_order{
             let curr_deps: &(char, Vec<u32>) = &self.dependencies[curr_digest];
             for curr_dep in &curr_deps.1{
                 seen_deps.entry(*curr_dep).or_insert_with(Vec::new);
@@ -126,7 +126,7 @@ impl GlobalDependencyGraph{
                 let count = *transaction_counts.entry(node).or_insert(0);
                 transaction_counts.insert(node, count+1);
             }
-            for (from, to, weight) in local_order_graph.all_edges(){
+            for (from, to, _weight) in local_order_graph.all_edges(){
                 edge_counts.entry((from, to)).or_insert(0);
                 edge_counts.entry((to, from)).or_insert(0);
                 edge_counts.insert((from, to), edge_counts[&(from, to)]+1);
@@ -188,8 +188,9 @@ impl PrunedGraph{
         let strongely_connected_components = kosaraju_scc(global_dependency_graph);
         let mut pruned_graph:  DiGraphMap<Node, u8> = global_dependency_graph.clone();
         let mut idx: usize = strongely_connected_components.len()-1;
-        
-        while strongely_connected_components.len() > 0 && idx>=0{
+        let mut count = 0;
+
+        while strongely_connected_components.len() > 0 && count<strongely_connected_components.len(){
             let mut is_fixed: bool = false;
             for node in &strongely_connected_components[idx]{
                 if fixed_transactions.contains(node){
@@ -205,6 +206,7 @@ impl PrunedGraph{
                 pruned_graph.remove_node(node);
             }
             idx -= 1;
+            count += 1;
         } 
         
 

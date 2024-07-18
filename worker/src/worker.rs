@@ -239,6 +239,7 @@ impl Worker {
         // gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
         BatchMaker::spawn(
             self.writer_store.clone(),
+            self.store.clone(),
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,

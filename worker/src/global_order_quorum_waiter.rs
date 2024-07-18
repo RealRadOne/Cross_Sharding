@@ -7,7 +7,6 @@ use futures::stream::StreamExt as _;
 use network::CancelHandler;
 use tokio::sync::mpsc::{Receiver, Sender};
 use log::info;
-use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct GlobalOrderQuorumWaiterMessage {
