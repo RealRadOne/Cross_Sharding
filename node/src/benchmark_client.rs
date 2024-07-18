@@ -263,6 +263,9 @@ impl Client {
                                         waiting.remove(&tx_uid);
                                         // TODO: Add this in the log file
                                     }
+                                    else{
+                                        info!("for fairness Receiving duplicate tx ack {}", tx_uid);
+                                    }
                                 },
                                 _ => {
                                     // TODO: Something has gone wrong (either the channel dropped or we failed to read from it).                            

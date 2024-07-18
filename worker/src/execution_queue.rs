@@ -170,42 +170,65 @@ impl ParallelExecution {
         info!("ParallelExecution:execute");
         info!("ParallelExecution:execute :: #nodes in graph = {:?}", self.global_order_graph.node_count());
 
-        let mut incoming_count: HashMap<Node, usize> = HashMap::new();
-        for node in self.global_order_graph.nodes(){
-            incoming_count.entry(node).or_insert(0);
-            for neighbor in self.global_order_graph.neighbors(node){
-                incoming_count.entry(neighbor).or_insert(0);
-                incoming_count.insert(neighbor, incoming_count.get(&neighbor).unwrap()+1);
-            }                   
-        }
-
-        // find root nodes of the graph
-        let mut roots: Vec<Node> = Vec::new();
-        for (node, count) in &incoming_count{
-            if *count==0{
-                roots.push(*node);
+        // TEST: START
+        for tx_uid in self.global_order_graph.nodes(){
+            info!("ParallelExecution::execute : tx_uid = {:?} is going to execute in", tx_uid);
+            let tx_id_vec = tx_uid.to_be_bytes().to_vec();
+            {
+                let mut writer_store_lock = self.writer_store.lock().await;
+                if writer_store_lock.writer_exists(tx_uid){
+                    info!("ParallelExecution::execute : tx_uid = {:?} does exist in writer store", tx_uid);
+                    let mut writer: Arc<futures::lock::Mutex<Writer>> = writer_store_lock.get_writer(tx_uid);
+                    drop(writer_store_lock);
+                    let mut writer_lock = writer.lock().await;
+                    let _ = writer_lock.send(Bytes::from(tx_id_vec)).await;
+                }
+                else{
+                    info!("ParallelExecution::execute : tx_uid = {:?} does not exist in writer store", tx_uid);
+                }
             }
         }
-        info!("ParallelExecution:execute :: #roots found = {:?}", roots.len());
-        // create a shared queue: https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
-        let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
+        info!("ParallelExecution::execute : Test ends");
+        // TEST: END
+
+
+
+        // let mut incoming_count: HashMap<Node, usize> = HashMap::new();
+        // for node in self.global_order_graph.nodes(){
+        //     incoming_count.entry(node).or_insert(0);
+        //     for neighbor in self.global_order_graph.neighbors(node){
+        //         incoming_count.entry(neighbor).or_insert(0);
+        //         incoming_count.insert(neighbor, incoming_count.get(&neighbor).unwrap()+1);
+        //     }                   
+        // }
+
+        // // find root nodes of the graph
+        // let mut roots: Vec<Node> = Vec::new();
+        // for (node, count) in &incoming_count{
+        //     if *count==0{
+        //         roots.push(*node);
+        //     }
+        // }
+        // info!("ParallelExecution:execute :: #roots found = {:?}", roots.len());
+        // // create a shared queue: https://stackoverflow.com/questions/72879440/how-to-use-vecdeque-in-multi-threaded-app
+        // let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
         
-        // initialize the shared queue with root nodes
-        for root in roots{
-            shared_queue.lock().unwrap().push_back(root);
-        }
+        // // initialize the shared queue with root nodes
+        // for root in roots{
+        //     shared_queue.lock().unwrap().push_back(root);
+        // }
 
-        // Traverse the graph and execute the nodes using thread pool
-        let mut blocking_tasks: Vec<JoinHandle<()>> = Vec::new();
-        for _ in 0..MAX_THREADS {
-            let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.writer_store.clone() ,self.sb_handler.clone(), shared_queue.clone());
-            blocking_tasks.push(task);
-        }
+        // // Traverse the graph and execute the nodes using thread pool
+        // let mut blocking_tasks: Vec<JoinHandle<()>> = Vec::new();
+        // for _ in 0..MAX_THREADS {
+        //     let task = ParallelExecutionThread::spawn(self.global_order_graph.clone(), self.store.clone(), self.writer_store.clone() ,self.sb_handler.clone(), shared_queue.clone());
+        //     blocking_tasks.push(task);
+        // }
 
-        // joining all the threads
-        for task in blocking_tasks{
-            let _ = task.await;
-        }
+        // // joining all the threads
+        // for task in blocking_tasks{
+        //     let _ = task.await;
+        // }
     }
 }
 
