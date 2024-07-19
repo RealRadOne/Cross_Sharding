@@ -267,13 +267,14 @@ impl Client {
                 // info!("target_addr = {:?}", target_addr);
                 for addr in target_addr {
                     let writer = writers.get_mut(&addr).unwrap();
-                    _ = writer.send(bytes.clone()).await;
-                    x += 1;
+                    // _ = writer.send(bytes.clone()).await;
+                    // x += 1;
 
                     if let Err(e) = (*writer).send(bytes.clone()).await {
                         warn!("Failed to send transaction: {}", e);
                         break 'main;
                     }
+                    x += 1;
                 }
             }
             if now.elapsed().as_millis() > BURST_DURATION as u128 {
