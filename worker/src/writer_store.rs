@@ -32,4 +32,10 @@ impl WriterStore {
         // info!("get_writer: tx_uid = {:?}", tx_uid);
         return self.store.get(&tx_uid).unwrap().clone();
     }
+
+    pub fn delete_writer (&mut self, tx_uid: u64) {
+        if self.writer_exists(tx_uid){
+            self.store.remove(&tx_uid);
+        }
+    }
 }

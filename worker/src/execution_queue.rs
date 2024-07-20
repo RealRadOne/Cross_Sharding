@@ -179,9 +179,10 @@ impl ParallelExecution {
                 if writer_store_lock.writer_exists(tx_uid){
                     info!("ParallelExecution::execute : tx_uid = {:?} does exist in writer store", tx_uid);
                     let mut writer: Arc<futures::lock::Mutex<Writer>> = writer_store_lock.get_writer(tx_uid);
-                    drop(writer_store_lock);
+                    // drop(writer_store_lock);
                     let mut writer_lock = writer.lock().await;
                     let _ = writer_lock.send(Bytes::from(tx_id_vec)).await;
+                    writer_store_lock.delete_writer(tx_uid);
                 }
                 else{
                     info!("ParallelExecution::execute : tx_uid = {:?} does not exist in writer store", tx_uid);
