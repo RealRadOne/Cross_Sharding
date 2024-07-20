@@ -14,6 +14,10 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use smallbank::SmallBankTransactionHandler;
 use std::collections::{HashMap, HashSet};
 use bytes::Bytes;
+use std::sync::{Arc, Mutex};
+
+type SharedStore = Arc<Mutex<HashSet<u64>>>;
+type Reader = futures::stream::SplitStream<Framed<TcpStream, LengthDelimitedCodec>>;
 
 
 #[tokio::main]
@@ -140,6 +144,28 @@ async fn main() -> Result<()> {
     client.send().await.context("Failed to submit transactions")
 }
 
+async fn read_socket(reader: &mut Reader, waiting : SharedStore) {
+    while let Some(frame) = reader.next().await {
+        match frame {
+            Ok(message) => {
+                let tx_uid = u64::from_be_bytes(message[..8].try_into().unwrap());
+                let mut wait_lock = waiting.lock().unwrap();
+                if wait_lock.contains(&tx_uid) {
+                    info!("for fairness Receiving tx ack {}", tx_uid);
+                    wait_lock.remove(&tx_uid);
+                } else {
+                    info!("for fairness Receiving duplicate tx ack {}", tx_uid);
+                }
+                drop(wait_lock)
+            }
+            Err(e) => {
+                warn!("{}", e);
+                return;
+            }
+        }
+    }
+}
+
 struct Client {
     target: SocketAddr,
     size: usize,
@@ -161,18 +187,29 @@ impl Client {
                 "Transaction size must be at least 9 bytes",
             ));
         }
+        // let mut waiting: HashSet<u64> = HashSet::new();
+        let waiting: SharedStore = Arc::new(Mutex::new(HashSet::new()));
 
         // // connect to mempool
-        let mut writers_readers = HashMap::new();
+        // let mut writers_readers: HashMap<&SocketAddr, (futures::stream::SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>, futures::stream::SplitStream<Framed<TcpStream, LengthDelimitedCodec>>)> = HashMap::new();
+        let mut writers : HashMap<&SocketAddr, futures::stream::SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>> = HashMap::new();
         for worker_addr_vec in self.shard_assignment.values(){
             for worker_address in worker_addr_vec{
                 info!("worker_address = {:?}", worker_address);
                 let stream = TcpStream::connect(worker_address)
                     .await
                     .context(format!("failed to connect to {}", worker_address))?; 
-                let transport = Framed::new(stream, LengthDelimitedCodec::new());
+                let transport: Framed<TcpStream, LengthDelimitedCodec> = Framed::new(stream, LengthDelimitedCodec::new());
                 let (mut writer, mut reader) = transport.split();
-                writers_readers.insert(worker_address, (writer, reader));
+                writers.insert(worker_address, writer);
+
+                // spawn a reading task
+                let waiting = waiting.clone();
+                tokio::spawn(
+                    async move {
+                        read_socket(& mut reader, waiting).await;
+                    }
+                );
             }
         }
 
@@ -182,15 +219,12 @@ impl Client {
         //     .context(format!("failed to connect to {}", self.target))?;
 
         // Submit all transactions.
-        let burst = self.rate / PRECISION;
-        let mut counter = 0;
+        let burst = (self.rate )/ PRECISION;
+        let mut counter: u64 = 0;
         let mut r = rand::thread_rng().gen();
         // let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
-        let interval = interval(Duration::from_millis(BURST_DURATION));
+        let interval: tokio::time::Interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
-
-        // Create a pool of pending transaction responses
-        let mut waiting: HashSet<u64> = HashSet::new();
 
         // NOTE: This log entry is used to compute performance.
         info!("Start sending transactions");
@@ -211,15 +245,18 @@ impl Client {
                     tx_uid = r;
                 }
                 let bytes = self.sb_handler.get_next_transaction(x == counter % burst, tx_uid);
-                waiting.insert(tx_uid);
+                {
+                    let mut waiting = waiting.lock().unwrap();
+                    waiting.insert(tx_uid);
+                }
                 info!("for fairness Sending tx {}", tx_uid);
-                
+
                 // get the target address besed on dependency
                 let dependency: (char, Vec<u32>) = self.sb_handler.get_transaction_dependency(bytes.clone());
                 let mut target_addr: HashSet<SocketAddr> = HashSet::new();
                 for dep in &dependency.1{
                     let mut idx: usize = 0;
-                    for lower_range in &self.shard_lower_range{
+                    for lower_range in &self.shard_lower_range {
                         if dep < lower_range{ break;}
                         idx += 1;
                     }
@@ -228,51 +265,14 @@ impl Client {
                     }
                 }
                 // info!("target_addr = {:?}", target_addr);
+                for addr in target_addr {
+                    let writer = writers.get_mut(&addr).unwrap();
 
-                for addr in target_addr{
-                    let (writer, reader) = writers_readers.get_mut(&addr).unwrap();
-
-                    // if let Err(e) = (*writer).send(bytes.clone()).await {
-                    //     warn!("Failed to send transaction: {}", e);
-                    //     break 'main;
-                    // }
-
-                    tokio::select! {
-                        // Sending a transaction
-                        request = (*writer).send(bytes.clone()) => {
-                            x += 1;
-                            match request {
-                                Ok(()) => {
-                                    // TODO: Add this even in the Log file
-                                }
-                                Err(e) =>{
-                                    warn!("Failed to send transaction: {}", e);
-                                    break 'main;
-                                }
-                            }
-                        }
-
-                        // receiving ack
-                        response = reader.next() => {
-                            match response {
-                                Some(Ok(bytes)) => {
-                                    // remove awaited transaction uid from the waiting pool
-                                    let tx_uid = u64::from_be_bytes(bytes[..8].try_into().unwrap());
-                                    if waiting.contains(&tx_uid) {
-                                        info!("for fairness Receiving tx ack {}", tx_uid);
-                                        waiting.remove(&tx_uid);
-                                        // TODO: Add this in the log file
-                                    }
-                                    else{
-                                        info!("for fairness Receiving duplicate tx ack {}", tx_uid);
-                                    }
-                                },
-                                _ => {
-                                    // TODO: Something has gone wrong (either the channel dropped or we failed to read from it).                            
-                                }
-                            }
-                        }
+                    if let Err(e) = (*writer).send(bytes.clone()).await {
+                        warn!("Failed to send transaction: {}", e);
+                        break 'main;
                     }
+                    x += 1;
                 }
             }
             if now.elapsed().as_millis() > BURST_DURATION as u128 {
