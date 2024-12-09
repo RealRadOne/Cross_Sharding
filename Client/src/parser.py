@@ -1,82 +1,35 @@
 import argparse
-import xml.etree.ElementTree as ET
 import subprocess
 import sys
 
-class ManifestParser:
-    def __init__(self):
-        self.parser = argparse.ArgumentParser(description='Parse manifest and run benchmark client')
-        self._add_arguments()
+# Hardcoded test nodes
+NODES = [
+    "128.110.218.249:22",
+    "128.110.218.240:22"
+]
 
-    def _add_arguments(self):
-        self.parser.add_argument('--size', type=int, default=100,
-                               help='The size of each transaction in bytes')
-        self.parser.add_argument('--n_users', type=int, default=1000,
-                               help='Number of users in small-bank')
-        self.parser.add_argument('--skew_factor', type=float, default=0.01,
-                               help='Skew factor for users in small-bank')
-        self.parser.add_argument('--prob_choose_mtx', type=float, default=1.0,
-                               help='Probability of choosing modifying transactions')
-        self.parser.add_argument('--rate', type=int, default=100,
-                               help='The rate (txs/s) at which to send transactions')
-        self.parser.add_argument('--num_shards', type=int, default=2,
-                               help='Number of shards')
-        self.parser.add_argument('--manifest', type=str, default='manifest.xml',
-                               help='Path to manifest.xml file')
+parser = argparse.ArgumentParser(description='Run benchmark client')
+parser.add_argument('--size', type=int, default=100)
+parser.add_argument('--n_users', type=int, default=1000)
+parser.add_argument('--skew_factor', type=float, default=0.01)
+parser.add_argument('--prob_choose_mtx', type=float, default=1.0)
+parser.add_argument('--rate', type=int, default=100)
 
-    def parse_manifest(self, manifest_path):
-        try:
-            tree = ET.parse(manifest_path)
-            root = tree.getroot()
-            
-            # Extract IP addresses from manifest
-            nodes = []
-            for node in root.findall(".//{*}interface"):
-                ip = node.find(".//{*}ip")
-                if ip is not None:
-                    address = ip.get('address')
-                    if address:
-                        # Add default port 8000
-                        nodes.append(f"{address}:8000")
-            
-            return nodes
-        except ET.ParseError as e:
-            print(f"Error parsing manifest file: {e}")
-            sys.exit(1)
-        except FileNotFoundError:
-            print(f"Manifest file not found: {manifest_path}")
-            sys.exit(1)
+args = parser.parse_args()
 
-    def run(self):
-        args = self.parser.parse_args()
-        nodes = self.parse_manifest(args.manifest)
+print("Using test nodes: {}".format(NODES))
 
-        if not nodes:
-            print("No nodes found in manifest file")
-            sys.exit(1)
+cmd = [
+    "cargo", "run", "--",
+    "--size={}".format(args.size),
+    "--n_users={}".format(args.n_users),
+    "--skew_factor={}".format(args.skew_factor),
+    "--prob_choose_mtx={}".format(args.prob_choose_mtx),
+    "--rate={}".format(args.rate),
+    "--num_shards=2"
+]
 
-        # Construct cargo run command
-        cmd = [
-            "cargo", "run", "--",
-            f"--size={args.size}",
-            f"--n_users={args.n_users}",
-            f"--skew_factor={args.skew_factor}",
-            f"--prob_choose_mtx={args.prob_choose_mtx}",
-            f"--rate={args.rate}",
-            f"--num_shards={args.num_shards}"
-        ]
+for node in NODES:
+    cmd.append("--nodes={}".format(node))
 
-        # Add node addresses
-        for node in nodes:
-            cmd.append(f"--nodes={node}")
-
-        try:
-            # Run the command
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error running benchmark client: {e}")
-            sys.exit(1)
-
-if __name__ == "__main__":
-    parser = ManifestParser()
-    parser.run()
+subprocess.call(cmd)

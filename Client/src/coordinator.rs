@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::net::SocketAddr;
+use tokio::net::TcpStream;
 
 
 pub type Transaction = Vec<u8>;
@@ -14,6 +16,7 @@ type ShardId = u32;
 
 pub struct Coordinator {
     rx_transaction: Receiver<Transaction>,
+    nodes: Vec<SocketAddr>,
     locks: Arc<Mutex<HashMap<UserId, bool>>>,
     num_shards: u32,
     sb_handler: SmallBankTransactionHandler,
@@ -22,6 +25,7 @@ pub struct Coordinator {
 impl Coordinator {
     pub fn new(
         rx_transaction: Receiver<Transaction>,
+        nodes: Vec<SocketAddr>,
         num_shards: u32,
         size: usize,
         n_users: u64,
@@ -32,14 +36,31 @@ impl Coordinator {
 
         Coordinator {
             rx_transaction,
+            nodes,
             locks: Arc::new(Mutex::new(HashMap::new())),
             num_shards,
             sb_handler,
         }
     }
 
+    async fn ping_nodes(&self) -> Result<()> {
+        for (i, node) in self.nodes.iter().enumerate() {
+            match TcpStream::connect(node).await {
+                Ok(_) => {
+                    info!("Node {} at address {} is available", i, node);
+                }
+                Err(e) => {
+                    error!("Failed to connect to node {} at address {}: {}", i, node, e);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         info!("Coordinator started");
+
+        self.ping_nodes().await?;
         
         let mut shard_logs = HashMap::new();
         for shard_id in 0..self.num_shards {
@@ -60,7 +81,7 @@ impl Coordinator {
                     if let Err(e) = writeln!(file, "{}", String::from_utf8_lossy(&transaction)) {
                         error!("Failed to write transaction to shard {} log: {}", shard_id, e);
                     } else {
-                        info!("Transaction written to shard {} log", shard_id);
+                        //info!("Transaction written to shard {} log", shard_id);
                     }
                 }
                 self.release_locks(&transaction).await;

@@ -55,7 +55,7 @@ impl Client {
 
                 if x == counter % burst {
                     tx_uid = counter;
-                    info!("Sending sample transaction {}", tx_uid);
+                    //info!("Sending sample transaction {}", tx_uid);
                 } else {
                     r += 1;
                     tx_uid = r;
@@ -66,7 +66,7 @@ impl Client {
                     warn!("Failed to send transaction to coordinator: {}", e);
                     break 'main;
                 }
-                info!("Sent transaction {} to coordinator", tx_uid);
+                //info!("Sent transaction {} to coordinator", tx_uid);
 
                 x += 1;
             }

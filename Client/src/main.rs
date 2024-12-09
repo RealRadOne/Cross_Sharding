@@ -9,6 +9,7 @@ use tokio::sync::mpsc::channel;
 use smallbank::SmallBankTransactionHandler;
 use clap::{crate_name, crate_version, App, AppSettings};
 use env_logger::Env;
+use std::net::SocketAddr;
 use log::info;
 
 #[tokio::main]
@@ -28,6 +29,7 @@ async fn main() -> Result<()> {
         .args_from_usage("--prob_choose_mtx=<FLOAT> 'Probability of choosing modifying transactions in small-bank'")
         .args_from_usage("--rate=<INT> 'The rate (txs/s) at which to send the transactions'")
         .args_from_usage("--num_shards=<INT> 'Number of shards to use'")
+        .args_from_usage("--nodes=[ADDR]... 'Network addresses of nodes'")
         .setting(AppSettings::ArgRequiredElseHelp)
         .get_matches();
 
@@ -39,6 +41,11 @@ async fn main() -> Result<()> {
     let rate = matches.value_of("rate").unwrap().parse::<u64>()?;
     let num_shards = matches.value_of("num_shards").unwrap_or("4").parse::<u32>()?;
 
+    let nodes: Vec<SocketAddr> = matches.values_of("nodes")
+        .unwrap()
+        .map(|addr| addr.parse().unwrap())
+        .collect();
+
     // Create channel for communication
     let (tx_transaction, rx_transaction) = channel(1000);
 
@@ -48,6 +55,7 @@ async fn main() -> Result<()> {
     // Create and spawn coordinator
     let mut coordinator = Coordinator::new(
         rx_transaction,
+        nodes,
         num_shards,
         size,
         n_users,
